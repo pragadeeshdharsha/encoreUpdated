@@ -1,0 +1,127 @@
+docker-compose -f docker-compose-cli.yaml up -d
+
+docker exec -it cli bash
+
+export CHANNEL_NAME=mychannel
+
+peer channel create -o orderer.example.com:7050 -c $CHANNEL_NAME -f ./channel-artifacts/channel.tx --tls --cafile /opt/gopath/src/github.com/hyperledger/fabric/peer/crypto/ordererOrganizations/example.com/orderers/orderer.example.com/msp/tlscacerts/tlsca.example.com-cert.pem
+
+peer channel join -b mychannel.block
+
+CORE_PEER_MSPCONFIGPATH=/opt/gopath/src/github.com/hyperledger/fabric/peer/crypto/peerOrganizations/org2.example.com/users/Admin@org2.example.com/msp CORE_PEER_ADDRESS=peer0.org2.example.com:7051 CORE_PEER_LOCALMSPID="Org2MSP" CORE_PEER_TLS_ROOTCERT_FILE=/opt/gopath/src/github.com/hyperledger/fabric/peer/crypto/peerOrganizations/org2.example.com/peers/peer0.org2.example.com/tls/ca.crt peer channel join -b mychannel.block
+
+peer channel update -o orderer.example.com:7050 -c $CHANNEL_NAME -f ./channel-artifacts/Org1MSPanchors.tx --tls --cafile /opt/gopath/src/github.com/hyperledger/fabric/peer/crypto/ordererOrganizations/example.com/orderers/orderer.example.com/msp/tlscacerts/tlsca.example.com-cert.pem
+
+CORE_PEER_MSPCONFIGPATH=/opt/gopath/src/github.com/hyperledger/fabric/peer/crypto/peerOrganizations/org2.example.com/users/Admin@org2.example.com/msp CORE_PEER_ADDRESS=peer0.org2.example.com:7051 CORE_PEER_LOCALMSPID="Org2MSP" CORE_PEER_TLS_ROOTCERT_FILE=/opt/gopath/src/github.com/hyperledger/fabric/peer/crypto/peerOrganizations/org2.example.com/peers/peer0.org2.example.com/tls/ca.crt peer channel update -o orderer.example.com:7050 -c $CHANNEL_NAME -f ./channel-artifacts/Org2MSPanchors.tx --tls --cafile /opt/gopath/src/github.com/hyperledger/fabric/peer/crypto/ordererOrganizations/example.com/orderers/orderer.example.com/msp/tlscacerts/tlsca.example.com-cert.pem
+
+
+-----------INSTALLING BUSINESS CHAINCODE------------------------------------
+peer chaincode install -n businesscc -v 0 -p github.com/malo/EncoreBlockchain/chaincodes/Business
+ 
+
+peer chaincode instantiate -o orderer.example.com:7050 --tls --cafile /opt/gopath/src/github.com/hyperledger/fabric/peer/crypto/ordererOrganizations/example.com/orderers/orderer.example.com/msp/tlscacerts/tlsca.example.com-cert.pem -C $CHANNEL_NAME -n businesscc -v 0 -c '{"Args":[]}' -P "OR ('Org1MSP.peer','Org2MSP.peer')"
+
+
+peer chaincode invoke -o orderer.example.com:7050 --tls --cafile /opt/gopath/src/github.com/hyperledger/fabric/peer/crypto/ordererOrganizations/example.com/orderers/orderer.example.com/msp/tlscacerts/tlsca.example.com-cert.pem -C $CHANNEL_NAME -n businesscc -c '{"Args":["putNewBusinessInfo","1bus","tata","12348901","4000000","23hhnx56s673sxx78","sdr32123d3","23rfs148b","12.4","8.09","0","1000000"]}'
+
+
+peer chaincode query -C $CHANNEL_NAME -n businesscc -c '{"Args":["getBusinessInfo","1bus"]}'
+
+
+-----------------INSTALLING BANK CHAINCODE----------------------------------------
+
+peer chaincode install -n bankcc -v 0 -p github.com/malo/EncoreBlockchain/chaincodes/Bank
+ 
+
+peer chaincode instantiate -o orderer.example.com:7050 --tls --cafile /opt/gopath/src/github.com/hyperledger/fabric/peer/crypto/ordererOrganizations/example.com/orderers/orderer.example.com/msp/tlscacerts/tlsca.example.com-cert.pem -C $CHANNEL_NAME -n bankcc -v 0 -c '{"Args":[]}' -P "OR ('Org1MSP.peer','Org2MSP.peer')"
+
+
+peer chaincode invoke -o orderer.example.com:7050 --tls --cafile /opt/gopath/src/github.com/hyperledger/fabric/peer/crypto/ordererOrganizations/example.com/orderers/orderer.example.com/msp/tlscacerts/tlsca.example.com-cert.pem -C $CHANNEL_NAME -n bankcc -c '{"Args":["writeBankInfo","1bank","kvb","chennai","40A","2333s673sxx78","sdr3cfgtdui3","23rfs6vhj148b","897vhessety","86zs0lhtd"]}'
+
+
+peer chaincode query -C $CHANNEL_NAME -n bankcc -c '{"Args":["getBankInfo","1bank"]}'
+
+
+
+
+------------------------INSTALLING WALLET CHAINCODE-------------------------
+
+peer chaincode install -n walletcc -v 0 -p github.com/malo/EncoreBlockchain/chaincodes/Wallet
+ 
+
+peer chaincode instantiate -o orderer.example.com:7050 --tls --cafile /opt/gopath/src/github.com/hyperledger/fabric/peer/crypto/ordererOrganizations/example.com/orderers/orderer.example.com/msp/tlscacerts/tlsca.example.com-cert.pem -C $CHANNEL_NAME -n walletcc -v 0 -c '{"Args":[]}' -P "OR ('Org1MSP.peer','Org2MSP.peer')"
+
+
+-----BusinessWalletID 
+peer chaincode invoke -o orderer.example.com:7050 --tls --cafile /opt/gopath/src/github.com/hyperledger/fabric/peer/crypto/ordererOrganizations/example.com/orderers/orderer.example.com/msp/tlscacerts/tlsca.example.com-cert.pem -C $CHANNEL_NAME -n walletcc -c '{"Args":["newWallet","23hhnx56s673sxx78","1000"]}'
+
+-----BusinessLoanWalletID
+peer chaincode invoke -o orderer.example.com:7050 --tls --cafile /opt/gopath/src/github.com/hyperledger/fabric/peer/crypto/ordererOrganizations/example.com/orderers/orderer.example.com/msp/tlscacerts/tlsca.example.com-cert.pem -C $CHANNEL_NAME -n walletcc -c '{"Args":["newWallet","sdr32123d3","1000"]}'
+
+------BankWalletID
+peer chaincode invoke -o orderer.example.com:7050 --tls --cafile /opt/gopath/src/github.com/hyperledger/fabric/peer/crypto/ordererOrganizations/example.com/orderers/orderer.example.com/msp/tlscacerts/tlsca.example.com-cert.pem -C $CHANNEL_NAME -n walletcc -c '{"Args":["newWallet","2333s673sxx78","1000"]}'
+
+------BankAssetWalletID
+peer chaincode invoke -o orderer.example.com:7050 --tls --cafile /opt/gopath/src/github.com/hyperledger/fabric/peer/crypto/ordererOrganizations/example.com/orderers/orderer.example.com/msp/tlscacerts/tlsca.example.com-cert.pem -C $CHANNEL_NAME -n walletcc -c '{"Args":["newWallet","sdr3cfgtdui3","1000"]}'
+
+
+peer chaincode query -C $CHANNEL_NAME -n walletcc -c '{"Args":["getWallet","23hhnx56s673sxx78"]}'
+peer chaincode query -C $CHANNEL_NAME -n walletcc -c '{"Args":["getWallet","sdr32123d3"]}'
+peer chaincode query -C $CHANNEL_NAME -n walletcc -c '{"Args":["getWallet","2333s673sxx78"]}'
+peer chaincode query -C $CHANNEL_NAME -n walletcc -c '{"Args":["getWallet","sdr3cfgtdui3"]}'
+
+
+
+-----------------------INSTALLING  TXN CHAINCODE---------------------
+
+peer chaincode install -n txncc -v 0 -p github.com/malo/EncoreBlockchain/chaincodes/Transactions
+ 
+
+peer chaincode instantiate -o orderer.example.com:7050 --tls --cafile /opt/gopath/src/github.com/hyperledger/fabric/peer/crypto/ordererOrganizations/example.com/orderers/orderer.example.com/msp/tlscacerts/tlsca.example.com-cert.pem -C $CHANNEL_NAME -n txncc -v 0 -c '{"Args":[]}' -P "OR ('Org1MSP.peer','Org2MSP.peer')"
+
+
+
+
+
+
+--------------------INSTALLING TRANSACTION BALANCE CHAINCODE
+
+
+peer chaincode install -n txnbalcc -v 0 -p github.com/malo/EncoreBlockchain/chaincodes/TxnBalance
+ 
+
+peer chaincode instantiate -o orderer.example.com:7050 --tls --cafile /opt/gopath/src/github.com/hyperledger/fabric/peer/crypto/ordererOrganizations/example.com/orderers/orderer.example.com/msp/tlscacerts/tlsca.example.com-cert.pem -C $CHANNEL_NAME -n txnbalcc -v 0 -c '{"Args":[]}' -P "OR ('Org1MSP.peer','Org2MSP.peer')"
+
+
+
+------INSTANTIATING TXN CHAINCODE
+
+peer chaincode invoke -o orderer.example.com:7050 --tls --cafile /opt/gopath/src/github.com/hyperledger/fabric/peer/crypto/ordererOrganizations/example.com/orderers/orderer.example.com/msp/tlscacerts/tlsca.example.com-cert.pem -C $CHANNEL_NAME -n txncc -c '{"Args":["newTxnInfo","1txn","disbursement","23/04/18","loan123","inst456","300","1bank","1bus","pragadeesh","v7b9h"]}'
+
+
+peer chaincode query -C $CHANNEL_NAME -n txncc -c '{"Args":["getTxnInfo","1txn"]}'
+
+
+
+----QUERRYING TXN BALANCE 
+peer chaincode query -C $CHANNEL_NAME -n txnbalcc -c '{"Args":["getTxnBalInfo","1"]}'
+peer chaincode query -C $CHANNEL_NAME -n txnbalcc -c '{"Args":["getTxnBalInfo","2"]}'
+peer chaincode query -C $CHANNEL_NAME -n txnbalcc -c '{"Args":["getTxnBalInfo","3"]}'
+peer chaincode query -C $CHANNEL_NAME -n txnbalcc -c '{"Args":["getTxnBalInfo","4"]}'
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
