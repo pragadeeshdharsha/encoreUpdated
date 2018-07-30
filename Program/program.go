@@ -16,7 +16,7 @@ type chainCode struct {
 
 type programInfo struct {
 	ProgramName        string
-	ProgramAnchor      string
+	ProgramAnchor      string //BusinessID
 	ProgramType        string
 	ProgramStartDate   time.Time
 	ProgramEndDate     time.Time
@@ -42,6 +42,8 @@ func (c *chainCode) Invoke(stub shim.ChaincodeStubInterface) pb.Response {
 		return writeProgram(stub, args)
 	} else if function == "getProgram" {
 		return getProgram(stub, args)
+	} else if function == "programIDexists" {
+		return programIDexists(stub, args[0])
 	}
 	return shim.Error("No function named " + function + " in Program")
 }
@@ -53,6 +55,19 @@ func writeProgram(stub shim.ChaincodeStubInterface, args []string) pb.Response {
 	}
 
 	//args[0] -> programID ; Key for the structure, must be passed by the user
+
+	//Checking existence of programID
+	response := programIDexists(stub, args[0])
+	if response.Status != shim.OK {
+		return shim.Error(response.Message)
+	}
+
+	//Checking existence of businessID
+	chaincodeArgs := toChaincodeArgs("busIDexists", args[2])
+	response = stub.InvokeChaincode("businesscc", chaincodeArgs, "myc")
+	if response.Status == shim.OK {
+		return shim.Error("BusinessId " + args[2] + " does not exits")
+	}
 
 	pTypes := map[string]bool{
 		"ar": true,
@@ -67,10 +82,13 @@ func writeProgram(stub shim.ChaincodeStubInterface, args []string) pb.Response {
 	}
 
 	//ProgramStartDate -> pSDate
-	pSDate, err := time.Parse("02/01/2006", args[4])
-	if err != nil {
-		return shim.Error(err.Error())
-	}
+	pSDate := time.Now()
+	/*
+		, err := time.Parse("02/01/2006", args[4])
+		if err != nil {
+			return shim.Error(err.Error())
+		}
+	*/
 
 	//ProgramEndDate -> pEDate
 	pEDate, err := time.Parse("02/01/2006", args[5])
@@ -110,14 +128,26 @@ func writeProgram(stub shim.ChaincodeStubInterface, args []string) pb.Response {
 	}
 
 	//SanctionDate -> sDate
-	sDate, err := time.Parse("02/01/2006", args[12])
-	if err != nil {
-		return shim.Error(err.Error())
-	}
+	sDate := time.Now()
+	/*
+		, err := time.Parse("02/01/2006", args[12])
+		if err != nil {
+			return shim.Error(err.Error())
+		}
+	*/
 
 	pInfo := programInfo{args[1], args[2], pTypeLower, pSDate, pEDate, pLimit, pROI, pExposureLower, dPercentage, dPeriod, args[11], sDate, args[13], args[14]}
 	programInfoBytes, _ := json.Marshal(pInfo)
 	err = stub.PutState(args[0], programInfoBytes)
+	return shim.Success(nil)
+}
+
+func programIDexists(stub shim.ChaincodeStubInterface, prgrmID string) pb.Response {
+	ifExists, _ := stub.GetState(prgrmID)
+	if ifExists != nil {
+		fmt.Println(ifExists)
+		return shim.Error("ProgramId " + prgrmID + " exits. Cannot create new ID")
+	}
 	return shim.Success(nil)
 }
 
@@ -146,6 +176,13 @@ func getProgram(stub shim.ChaincodeStubInterface, args []string) pb.Response {
 
 	return shim.Success([]byte(printProgramInfo))
 
+}
+func toChaincodeArgs(args ...string) [][]byte {
+	bargs := make([][]byte, len(args))
+	for i, arg := range args {
+		bargs[i] = []byte(arg)
+	}
+	return bargs
 }
 
 func main() {

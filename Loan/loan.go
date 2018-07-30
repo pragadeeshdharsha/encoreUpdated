@@ -2,6 +2,8 @@ package main
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"reflect"
@@ -17,17 +19,19 @@ type chainCode struct {
 }
 
 type loanInfo struct {
-	InstNum            string //Instrument Number
-	ExposureBusinessID string
-	ProgramID          string
-	SanctionAmt        int64
-	SanctionDate       time.Time //with time
-	SanctionAuthority  string
-	ROI                float64
-	DueDate            time.Time
-	ValueDate          time.Time //with time
-	LoanStatus         string
-	LoanBalance        int64
+	InstNum                     string //Instrument Number
+	ExposureBusinessID          string
+	ProgramID                   string
+	SanctionAmt                 int64
+	SanctionDate                time.Time //with time
+	SanctionAuthority           string
+	ROI                         float64
+	DueDate                     time.Time
+	ValueDate                   time.Time //with time
+	LoanStatus                  string
+	LoanDisbursedWalletID       string
+	LoanChargesWalletID         string
+	LoanAccruedInterestWalletID string
 }
 
 func (c *chainCode) Init(stub shim.ChaincodeStubInterface) pb.Response {
@@ -43,21 +47,59 @@ func (c *chainCode) Invoke(stub shim.ChaincodeStubInterface) pb.Response {
 		return getLoanInfo(stub, args)
 	} else if function == "updateLoanInfo" {
 		return updateLoanInfo(stub, args)
+	} else if function == "loanIDexists" {
+		return loanIDexists(stub, args[0])
+	} else if function == "loanStatusSancAmt" {
+		return loanStatusSancAmt(stub, args[0])
+	} else if function == "getWalletID" {
+		return getWalletID(stub, args)
 	}
 	return shim.Error("No function named " + function + " in Loan")
 }
 
 func newLoanInfo(stub shim.ChaincodeStubInterface, args []string) pb.Response {
 
-	if len(args) != 12 {
-		return shim.Error("Invalid number of arguments")
+	if len(args) != 14 {
+		xLenStr := strconv.Itoa(len(args))
+		return shim.Error("Invalid number of arguments in newLoanInfo(loan) (required:14) given: " + xLenStr)
+	}
+	//Checking existence of loanID
+	response := loanIDexists(stub, args[0])
+	if response.Status != shim.OK {
+		return shim.Error(response.Message)
 	}
 
-	//Checking if the instrumentID exist or not
-	/*chk, err := stub.GetState(args[1])
-	if chk == nil {
-		return shim.Error("There is no instrument ID:" + args[1])
-	}*/
+	//Checking existence of ExposureBusinessID
+	chaincodeArgs := toChaincodeArgs("busIDexists", args[2])
+	response = stub.InvokeChaincode("businesscc", chaincodeArgs, "myc")
+	if response.Status == shim.OK {
+		return shim.Error("ExposureBusinessID " + args[2] + " does not exits")
+	}
+
+	//Checking if Instrument ID is Instrument Ref. No.
+	chaincodeArgs = toChaincodeArgs("getSellerIDnAmt", args[1])
+	response = stub.InvokeChaincode("instrumentcc", chaincodeArgs, "myc")
+	if response.Status != shim.OK {
+		return shim.Error("Instrument refrence no " + args[1] + " does not exits")
+	}
+
+	// getting the sanction amount from the instrument
+	instAmtStr := strings.Split(string(response.Payload), ",")[1]
+	instAmt, err := strconv.ParseInt(instAmtStr, 10, 64)
+	if err != nil {
+		return shim.Error("Unable to parse instAmt(loan):" + err.Error())
+	}
+
+	//Getting the discount percentage
+	chaincodeArgs = toChaincodeArgs("discountPercentage", args[3], args[2])
+	response = stub.InvokeChaincode("pprcc", chaincodeArgs, "myc")
+	if response.Status == shim.OK {
+		return shim.Error("PprId " + args[8] + " does not exits")
+	}
+
+	discountPercentStr := string(response.Payload)
+	discountPercent, _ := strconv.ParseInt(discountPercentStr, 10, 64)
+	amt := instAmt - ((discountPercent * instAmt) / 100)
 
 	//SanctionAmt -> sAmt
 	sAmt, err := strconv.ParseInt(args[4], 10, 64)
@@ -65,16 +107,12 @@ func newLoanInfo(stub shim.ChaincodeStubInterface, args []string) pb.Response {
 		return shim.Error(err.Error())
 	}
 
-	//Converting the incoming date from Dd/mm/yy:hh:mm:ss to Dd/mm/yyThh:mm:ss for parsing
-	sDateStr := args[5][:10]
-	sTime := args[5][11:]
-	sStr := sDateStr + "T" + sTime
+	if sAmt > amt && sAmt == 0 {
+		return shim.Error("Sanction amount exceeds the required value or it is zero : " + args[4])
+	}
 
 	//SanctionDate ->sDate
-	sDate, err := time.Parse("02/01/2006T15:04:05", sStr)
-	if err != nil {
-		return shim.Error(err.Error())
-	}
+	sDate := time.Now()
 
 	roi, err := strconv.ParseFloat(args[7], 32)
 	if err != nil {
@@ -100,39 +138,102 @@ func newLoanInfo(stub shim.ChaincodeStubInterface, args []string) pb.Response {
 		return shim.Error(err.Error())
 	}
 
-	/*	loanStatusValues := map[string]bool{
-			"open":              true,
-			"sanctioned":        true,
-			"part disbursed":    true,
-			"disbursed":         true,
-			"part collected":    true,
-			"collected/settled": true,
-			"overdue":           true,
-		}
+	hash := sha256.New()
 
-		loanStatusValuesLower := strings.ToLower(args[10])
-		if !loanStatusValues[loanStatusValuesLower] {
-			return shim.Error("Invalid Instrument Status " + args[10])
-		}*/
+	// Hashing LoanDisbursedWalletID
+	LoanDisbursedWalletStr := args[11] + "LoanDisbursedWallet"
+	hash.Write([]byte(LoanDisbursedWalletStr))
+	md := hash.Sum(nil)
+	LoanDisbursedWalletIDsha := hex.EncodeToString(md)
+	createWallet(stub, LoanDisbursedWalletIDsha, args[11])
 
-	loanBalanceString, err := strconv.ParseInt(args[11], 10, 64)
-	if err != nil {
-		return shim.Error("Error in parsing int in newLoanInfo:" + err.Error())
-	}
+	// Hashing LoanChargesWalletID
+	LoanChargesWalletStr := args[12] + "LoanChargesWallet"
+	hash.Write([]byte(LoanChargesWalletStr))
+	md = hash.Sum(nil)
+	LoanChargesWalletIDsha := hex.EncodeToString(md)
+	createWallet(stub, LoanChargesWalletIDsha, args[12])
 
-	ifExists, err := stub.GetState(args[0])
-	if ifExists != nil {
-		fmt.Println(ifExists)
-		return shim.Error("LoanId " + args[0] + " exits. Cannot create new ID")
-	}
+	// Hashing LoanAccruedInterestWalletID
+	LoanAccruedInterestWalletStr := args[13] + "LoanAccruedInterestWallet"
+	hash.Write([]byte(LoanAccruedInterestWalletStr))
+	md = hash.Sum(nil)
+	LoanAccruedInterestWalletIDsha := hex.EncodeToString(md)
+	createWallet(stub, LoanAccruedInterestWalletIDsha, args[13])
 
-	loan := loanInfo{args[1], args[2], args[3], sAmt, sDate, args[6], roi, dDate, vDate, "open", loanBalanceString}
+	loan := loanInfo{args[1], args[2], args[3], sAmt, sDate, args[6], roi, dDate, vDate, "sanctioned", LoanDisbursedWalletIDsha, LoanChargesWalletIDsha, LoanAccruedInterestWalletIDsha}
 	loanBytes, err := json.Marshal(loan)
 	if err != nil {
 		return shim.Error(err.Error())
 	}
 	stub.PutState(args[0], loanBytes)
 	return shim.Success(nil)
+}
+
+func loanIDexists(stub shim.ChaincodeStubInterface, loanID string) pb.Response {
+	ifExists, _ := stub.GetState(loanID)
+	if ifExists != nil {
+		fmt.Println(ifExists)
+		return shim.Error("LoanId " + loanID + " exits. Cannot create new ID")
+	}
+	return shim.Success(nil)
+}
+
+func loanStatusSancAmt(stub shim.ChaincodeStubInterface, loanID string) pb.Response {
+	loanBytes, err := stub.GetState(loanID)
+	if err != nil {
+		return shim.Error(err.Error())
+	} else if loanBytes == nil {
+		return shim.Error("No data exists on this loanID: " + loanID)
+	}
+
+	loan := loanInfo{}
+	err = json.Unmarshal(loanBytes, &loan)
+	if err != nil {
+		return shim.Error("Error unmarshiling in loanstatus(loan):" + err.Error())
+	}
+
+	sancAmtString := strconv.FormatInt(loan.SanctionAmt, 64)
+	return shim.Success([]byte(loan.LoanStatus + "," + sancAmtString))
+}
+
+func getWalletID(stub shim.ChaincodeStubInterface, args []string) pb.Response {
+
+	loanBytes, err := stub.GetState(args[0])
+	if err != nil {
+		return shim.Error(err.Error())
+	} else if loanBytes == nil {
+		return shim.Error("No data exists on this loanID: " + args[0])
+	}
+
+	loan := loanInfo{}
+	err = json.Unmarshal(loanBytes, &loan)
+	if err != nil {
+		return shim.Error("Unable to parse into loan the structure (loanWalletValues)" + err.Error())
+	}
+
+	walletID := ""
+
+	switch args[1] {
+	case "accrued":
+		walletID = loan.LoanAccruedInterestWalletID
+	case "charges":
+		walletID = loan.LoanChargesWalletID
+	case "disbursed":
+		walletID = loan.LoanDisbursedWalletID
+	default:
+		return shim.Error("There is no wallet of this type in Loan :" + args[1])
+	}
+
+	return shim.Success([]byte(walletID))
+}
+func createWallet(stub shim.ChaincodeStubInterface, walletID string, amt string) pb.Response {
+	chaincodeArgs := toChaincodeArgs("newWallet", walletID, amt)
+	response := stub.InvokeChaincode("walletcc", chaincodeArgs, "myc")
+	if response.Status != shim.OK {
+		return shim.Error("Unable to create new wallet from business")
+	}
+	return shim.Success([]byte("created new wallet from business"))
 }
 
 func getLoanInfo(stub shim.ChaincodeStubInterface, args []string) pb.Response {
@@ -193,17 +294,9 @@ func updateLoanInfo(stub shim.ChaincodeStubInterface, args []string) pb.Response
 
 	fmt.Printf("args[1]:%s\n", args[1])
 	// To change the LoanStatus from "open" to "sanction"
-	if len(args) == 2 && args[1] == "sanctioned" {
-
-		loan.LoanStatus = strings.ToLower(args[1])
-		sanctionString := strconv.FormatInt(loan.SanctionAmt, 10)
-		argsToLoanBal := []string{"1loanbal", args[0], "0", "02/01/2006", "0", sanctionString, "0", "0", sanctionString, "sanctioned"}
-		argsString := strings.Join(argsToLoanBal, ",")
-		chaincodeArgs := toChaincodeArgs("putLoanBalInfo", argsString)
-		response := stub.InvokeChaincode("loanbalcc", chaincodeArgs, "myc")
-		if response.Status != shim.OK {
-			return shim.Error("Unable to create a loanBal entry from loan:" + response.Message)
-		}
+	if args[2] == "disbursed" {
+		//Updating Loan status for disbursement
+		loan.LoanStatus = args[1]
 		loanBytes, _ := json.Marshal(loan)
 		err = stub.PutState(args[0], loanBytes)
 		if err != nil {
@@ -232,6 +325,7 @@ func updateLoanInfo(stub shim.ChaincodeStubInterface, args []string) pb.Response
 	}
 	return shim.Error("Invalid info for update loan")
 }
+
 func toChaincodeArgs(args ...string) [][]byte {
 	bargs := make([][]byte, len(args))
 	for i, arg := range args {

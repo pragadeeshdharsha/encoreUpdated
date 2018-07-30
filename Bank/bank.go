@@ -27,6 +27,16 @@ type bankInfo struct {
 }
 
 func (c *chainCode) Init(stub shim.ChaincodeStubInterface) pb.Response {
+
+	bank := bankInfo{}
+	indexName := "Bankcode~BankBranch"
+	codeBranchKey, err := stub.CreateCompositeKey(indexName, []string{bank.Bankcode, bank.BankBranch})
+	if err != nil {
+		return shim.Error("Unable to create composite key Bankcode~BankBranch in bankcc")
+	}
+	value := []byte{0x00}
+	stub.PutState(codeBranchKey, value)
+
 	return shim.Success(nil)
 }
 
@@ -39,6 +49,8 @@ func (c *chainCode) Invoke(stub shim.ChaincodeStubInterface) pb.Response {
 		return getBankInfo(stub, args)
 	} else if function == "getWalletID" {
 		return getWalletID(stub, args)
+	} else if function == "bankIDexists" {
+		return bankIDexists(stub, args[0])
 	}
 	return shim.Error("No function named " + function + " in Bank")
 
@@ -49,6 +61,17 @@ func writeBankInfo(stub shim.ChaincodeStubInterface, args []string) pb.Response 
 	if len(args) != 9 {
 		xLenStr := strconv.Itoa(len(args))
 		return shim.Error("Invalid number of arguments in writeBankInfo (required:9) given:" + xLenStr)
+	}
+
+	response := bankIDexists(stub, args[0])
+	if response.Status != shim.OK {
+		return shim.Error(response.Message)
+	}
+
+	codeBranchIterator, err := stub.GetStateByPartialCompositeKey("Bankcode~BankBranch", []string{args[3]})
+	codeBranchData, err := codeBranchIterator.Next()
+	if codeBranchData != nil {
+		return shim.Error("Bank code already exist: " + args[3])
 	}
 
 	hash := sha256.New()
@@ -95,12 +118,6 @@ func writeBankInfo(stub shim.ChaincodeStubInterface, args []string) pb.Response 
 		return shim.Error("Unable to Marshal the json file " + err.Error())
 	}
 
-	ifExists, err := stub.GetState(args[0])
-	if ifExists != nil {
-		fmt.Println(ifExists)
-		return shim.Error("BankId " + args[0] + " exits. Cannot create new ID")
-	}
-
 	err = stub.PutState(args[0], bankBytes)
 
 	return shim.Success([]byte("Succefully written into the ledger"))
@@ -115,6 +132,14 @@ func createWallet(stub shim.ChaincodeStubInterface, walletID string, amt string)
 	return shim.Success([]byte("created new wallet from bank"))
 }
 
+func bankIDexists(stub shim.ChaincodeStubInterface, bankID string) pb.Response {
+	ifExists, _ := stub.GetState(bankID)
+	if ifExists != nil {
+		fmt.Println(ifExists)
+		return shim.Error("BankId " + bankID + " exits. Cannot create new ID")
+	}
+	return shim.Success(nil)
+}
 func toChaincodeArgs(args ...string) [][]byte {
 	bargs := make([][]byte, len(args))
 	for i, arg := range args {

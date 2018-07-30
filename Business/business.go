@@ -23,11 +23,23 @@ type businessInfo struct {
 	BusinessLiabilityWalletID string
 	MaxROI                    float64
 	MinROI                    float64
-	NumberOfPrograms          int
-	BusinessExposure          int64
+	/*
+		NumberOfPrograms          int
+		BusinessExposure          int64
+	*/
+	BusinessPrincipalOutstandingWalletID string
+	BusinessInterestOutstandingWalletID  string
 }
 
 func (c *chainCode) Init(stub shim.ChaincodeStubInterface) pb.Response {
+	bus := businessInfo{}
+	indexName := "BusinessAcNo~BusinessName"
+	acntNoNameKey, err := stub.CreateCompositeKey(indexName, []string{bus.BusinessAcNo, bus.BusinessName})
+	if err != nil {
+		return shim.Error("Unable to create composite key BusinessAcNo~BusinessName in businesscc")
+	}
+	value := []byte{0x00}
+	stub.PutState(acntNoNameKey, value)
 	return shim.Success(nil)
 }
 
@@ -40,6 +52,8 @@ func (c *chainCode) Invoke(stub shim.ChaincodeStubInterface) pb.Response {
 		return getBusinessInfo(stub, args)
 	} else if function == "getWalletID" {
 		return getWalletID(stub, args)
+	} else if function == "busIDexists" {
+		return busIDexists(stub, args[0])
 	}
 	return shim.Error("No function named " + function + " in Business")
 }
@@ -50,6 +64,11 @@ func putNewBusinessInfo(stub shim.ChaincodeStubInterface, args []string) pb.Resp
 		xLenStr := strconv.Itoa(len(args))
 		return shim.Error("Invalid number of arguments in putNewBusinessInfo (required:11) given:" + xLenStr)
 
+	}
+
+	response := busIDexists(stub, args[0])
+	if response.Status != shim.OK {
+		return shim.Error(response.Message)
 	}
 
 	businessLimitConv, err := strconv.ParseInt(args[3], 10, 64)
@@ -64,21 +83,21 @@ func putNewBusinessInfo(stub shim.ChaincodeStubInterface, args []string) pb.Resp
 	hash.Write([]byte(BusinessWalletStr))
 	md := hash.Sum(nil)
 	BusinessWalletIDsha := hex.EncodeToString(md)
-	createWallet(stub, BusinessWalletIDsha, "1000")
+	createWallet(stub, BusinessWalletIDsha, args[4])
 
 	// Hashing BusinessLoanWalletID
 	BusinessLoanWalletStr := args[2] + "BusinessLoanWallet"
 	hash.Write([]byte(BusinessLoanWalletStr))
 	md = hash.Sum(nil)
 	BusinessLoanWalletIDsha := hex.EncodeToString(md)
-	createWallet(stub, BusinessLoanWalletIDsha, "1000")
+	createWallet(stub, BusinessLoanWalletIDsha, args[5])
 
 	// Hashing BusinessLiabilityWalletID
 	BusinessLiabilityWalletStr := args[2] + "BusinessLiabilityWallet"
 	hash.Write([]byte(BusinessLiabilityWalletStr))
 	md = hash.Sum(nil)
 	BusinessLiabilityWalletIDsha := hex.EncodeToString(md)
-	createWallet(stub, BusinessLiabilityWalletIDsha, "1000")
+	createWallet(stub, BusinessLiabilityWalletIDsha, args[6])
 
 	maxROIconvertion, err := strconv.ParseFloat(args[7], 32)
 	if err != nil {
@@ -92,23 +111,33 @@ func putNewBusinessInfo(stub shim.ChaincodeStubInterface, args []string) pb.Resp
 		return shim.Error(err.Error())
 	}
 
-	numOfPrograms, err := strconv.Atoi(args[9])
-	if err != nil {
-		fmt.Printf("Number of programs should be integer: %s\n", args[9])
-	}
+	/*
+		numOfPrograms, err := strconv.Atoi(args[9])
+		if err != nil {
+			fmt.Printf("Number of programs should be integer: %s\n", args[9])
+		}
 
-	businessExposureConv, err := strconv.ParseInt(args[10], 10, 64)
-	if err != nil {
-		fmt.Printf("Invalid business exposure: %s\n", args[10])
-	}
+		businessExposureConv, err := strconv.ParseInt(args[10], 10, 64)
+		if err != nil {
+			fmt.Printf("Invalid business exposure: %s\n", args[10])
+		}
+	*/
 
-	ifExists, err := stub.GetState(args[0])
-	if ifExists != nil {
-		fmt.Println(ifExists)
-		return shim.Error("BusinessId " + args[0] + " exits. Cannot create new ID")
-	}
+	// Hashing BusinessPrincipalOutstandingWalletID
+	BusinessPrincipalOutstandingWalletStr := args[2] + "BusinessPrincipalOutstandingWallet"
+	hash.Write([]byte(BusinessPrincipalOutstandingWalletStr))
+	md = hash.Sum(nil)
+	BusinessPrincipalOutstandingWalletIDsha := hex.EncodeToString(md)
+	createWallet(stub, BusinessPrincipalOutstandingWalletIDsha, args[9])
 
-	newInfo := &businessInfo{args[1], args[2], businessLimitConv, BusinessWalletIDsha, BusinessLoanWalletIDsha, BusinessLiabilityWalletIDsha, maxROIconvertion, minROIconvertion, numOfPrograms, businessExposureConv}
+	// Hashing BusinessInterestOutstandingWalletID
+	BusinessInterestOutstandingWalletStr := args[2] + "BusinessInterestOutstandingWallet"
+	hash.Write([]byte(BusinessInterestOutstandingWalletStr))
+	md = hash.Sum(nil)
+	BusinessInterestOutstandingWalletIDsha := hex.EncodeToString(md)
+	createWallet(stub, BusinessInterestOutstandingWalletIDsha, args[10])
+
+	newInfo := &businessInfo{args[1], args[2], businessLimitConv, BusinessWalletIDsha, BusinessLoanWalletIDsha, BusinessLiabilityWalletIDsha, maxROIconvertion, minROIconvertion, BusinessPrincipalOutstandingWalletIDsha, BusinessInterestOutstandingWalletIDsha}
 	newInfoBytes, _ := json.Marshal(newInfo)
 	err = stub.PutState(args[0], newInfoBytes) // businessID = args[0]
 	if err != nil {
@@ -158,6 +187,14 @@ func getBusinessInfo(stub shim.ChaincodeStubInterface, args []string) pb.Respons
 	return shim.Success(nil)
 }
 
+func busIDexists(stub shim.ChaincodeStubInterface, busID string) pb.Response {
+	ifExists, _ := stub.GetState(busID)
+	if ifExists != nil {
+		fmt.Println(ifExists)
+		return shim.Error("BusinessId " + busID + " exits. Cannot create new ID")
+	}
+	return shim.Success(nil)
+}
 func getWalletID(stub shim.ChaincodeStubInterface, args []string) pb.Response {
 
 	if len(args) != 2 {
@@ -187,6 +224,12 @@ func getWalletID(stub shim.ChaincodeStubInterface, args []string) pb.Response {
 		walletID = parsedBusinessInfo.BusinessLoanWalletID
 	case "liability":
 		walletID = parsedBusinessInfo.BusinessLiabilityWalletID
+	case "principalOut":
+		walletID = parsedBusinessInfo.BusinessPrincipalOutstandingWalletID
+	case "interestOut":
+		walletID = parsedBusinessInfo.BusinessInterestOutstandingWalletID
+	default:
+		return shim.Error("There is no wallet of this type in Business :" + args[1])
 	}
 
 	return shim.Success([]byte(walletID))

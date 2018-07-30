@@ -13,7 +13,7 @@ type chainCode struct {
 }
 
 type walletsInfo struct {
-	Balance int64
+	Balance float64
 }
 
 func (c *chainCode) Init(stub shim.ChaincodeStubInterface) pb.Response {
@@ -41,7 +41,7 @@ func newWallet(stub shim.ChaincodeStubInterface, args []string) pb.Response {
 		return shim.Error("Invalid number of arguments in newWallet (required:2) given:" + xLenStr)
 	}
 
-	bal64, err := strconv.ParseInt(args[1], 10, 64)
+	bal64, err := strconv.ParseFloat(args[1], 64)
 	if err != nil {
 		return shim.Error(err.Error())
 	}
@@ -76,7 +76,7 @@ func getWallet(stub shim.ChaincodeStubInterface, args []string) pb.Response {
 	balString := fmt.Sprintf("%+v", bal)
 	fmt.Printf("Wallet %s : %s\n", args[0], balString)
 
-	balStr := strconv.FormatInt(bal.Balance, 10)
+	balStr := strconv.FormatFloat(bal.Balance, 'f', 4, 64)
 	return shim.Success([]byte(balStr))
 }
 
@@ -102,7 +102,7 @@ func updateWallet(stub shim.ChaincodeStubInterface, args []string) pb.Response {
 		return shim.Error(err.Error())
 	}
 
-	bal.Balance, err = strconv.ParseInt(args[1], 10, 64)
+	bal.Balance, err = strconv.ParseFloat(args[1], 64)
 	if err != nil {
 		return shim.Error("Error in Wallet updation parse int" + err.Error())
 	}
@@ -112,7 +112,7 @@ func updateWallet(stub shim.ChaincodeStubInterface, args []string) pb.Response {
 	if err != nil {
 		return shim.Error("Error in Wallet updation " + err.Error())
 	}
-	fmt.Printf("Balance for %s : %d\n", args[0], bal.Balance)
+	fmt.Printf("Balance for %s : %f\n", args[0], bal.Balance)
 	return shim.Success(nil)
 }
 
