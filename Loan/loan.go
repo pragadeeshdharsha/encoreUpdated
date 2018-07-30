@@ -20,7 +20,7 @@ type chainCode struct {
 
 type loanInfo struct {
 	InstNum                     string //Instrument Number
-	ExposureBusinessID          string
+	ExposureBusinessID          string //buyer for now
 	ProgramID                   string
 	SanctionAmt                 int64
 	SanctionDate                time.Time //with time
@@ -32,6 +32,8 @@ type loanInfo struct {
 	LoanDisbursedWalletID       string
 	LoanChargesWalletID         string
 	LoanAccruedInterestWalletID string
+	BuyerBusinessID             string
+	SellerBusinessID            string
 }
 
 func (c *chainCode) Init(stub shim.ChaincodeStubInterface) pb.Response {
@@ -161,7 +163,21 @@ func newLoanInfo(stub shim.ChaincodeStubInterface, args []string) pb.Response {
 	LoanAccruedInterestWalletIDsha := hex.EncodeToString(md)
 	createWallet(stub, LoanAccruedInterestWalletIDsha, args[13])
 
-	loan := loanInfo{args[1], args[2], args[3], sAmt, sDate, args[6], roi, dDate, vDate, "sanctioned", LoanDisbursedWalletIDsha, LoanChargesWalletIDsha, LoanAccruedInterestWalletIDsha}
+	//Checking existence of BuyerBusinessID
+	chaincodeArgs = toChaincodeArgs("busIDexists", args[14])
+	response = stub.InvokeChaincode("businesscc", chaincodeArgs, "myc")
+	if response.Status == shim.OK {
+		return shim.Error("BuyerBusinessID " + args[14] + " does not exits")
+	}
+
+	//Checking existence of SellerBusinessID
+	chaincodeArgs = toChaincodeArgs("busIDexists", args[15])
+	response = stub.InvokeChaincode("businesscc", chaincodeArgs, "myc")
+	if response.Status == shim.OK {
+		return shim.Error("SellerBusinessID " + args[15] + " does not exits")
+	}
+
+	loan := loanInfo{args[1], args[2], args[3], sAmt, sDate, args[6], roi, dDate, vDate, "sanctioned", LoanDisbursedWalletIDsha, LoanChargesWalletIDsha, LoanAccruedInterestWalletIDsha, args[14], args[15]}
 	loanBytes, err := json.Marshal(loan)
 	if err != nil {
 		return shim.Error(err.Error())
