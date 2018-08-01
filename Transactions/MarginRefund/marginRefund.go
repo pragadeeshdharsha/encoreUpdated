@@ -6,7 +6,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/hyperledger/fabric/common/util"
 	"github.com/hyperledger/fabric/core/chaincode/shim"
 	pb "github.com/hyperledger/fabric/protos/peer"
 )
@@ -21,20 +20,20 @@ func (c *chainCode) Init(stub shim.ChaincodeStubInterface) pb.Response {
 func (c *chainCode) Invoke(stub shim.ChaincodeStubInterface) pb.Response {
 	function, args := stub.GetFunctionAndParameters()
 
-	if function == "newDisbInfo" {
-		return newDisbInfo(stub, args)
+	if function == "newRepayInfo" {
+		return newRepayInfo(stub, args)
 	}
-	return shim.Error("no function named " + function + " found in disbursement")
+	return shim.Error("no function named " + function + " found in Margin Refund")
 }
 
-func newDisbInfo(stub shim.ChaincodeStubInterface, args []string) pb.Response {
+func newRepayInfo(stub shim.ChaincodeStubInterface, args []string) pb.Response {
 
 	if len(args) == 1 {
 		args = strings.Split(args[0], ",")
 	}
 	if len(args) != 10 {
 		xLenStr := strconv.Itoa(len(args))
-		return shim.Error("Invalid number of arguments in newDisbInfo(disbursement) (required:10) given:" + xLenStr)
+		return shim.Error("Invalid number of arguments in newRepayInfo(Margin Refund) (required:10) given:" + xLenStr)
 	}
 
 	/*
@@ -43,73 +42,147 @@ func newDisbInfo(stub shim.ChaincodeStubInterface, args []string) pb.Response {
 	 *LoanID  string    //args[3]
 	 *InsID   string    //args[4]
 	 *Amt     int64     //args[5]
-	 *FromID  string    //args[6]
-	 *ToID    string    //args[7]
+	 *FromID  string    //args[6]  Bank
+	 *ToID    string    //args[7]  Business
 	 *By      string    //args[8]
 	 *PprID   string    //args[9]
 	 */
 
+	amt, _ := strconv.ParseInt(args[5], 10, 64)
 	///////////////////////////////////////////////////////////////////////////////////////////////////
 	// 				UPDATING WALLETS																///
 	///////////////////////////////////////////////////////////////////////////////////////////////////
 	// The transaction object has been created and written into the ledger
 	// The JSON file is 'transaction'function
 	// Now to create a TXN_Bal_Update obj for 4 times
-	// Calling TXN_Balance CC based on TXN_Type {ex: Disbursement}
+	// Calling TXN_Balance CC based on TXN_Type
 	/*
-	 *	bank main wallet reduced
-	 * 	bank asset wallet incresed
-	 *	business main wallet increased
-	 *	business loan wallet increased
-	 */
+	   a. Crediting (Increasing) Business Wallet
+	   b. Debiting (Decreasing) Bank Wallet
+	   c. Debiting (Decreasing) Bank Refund Wallet
+	*/
 
-	//####################################################################################################################
-	//Calling for updating Bank Main_Wallet
-	//####################################################################################################################
+	//Validations
 
-	cAmtString := "0"
-	dAmtString := args[5]
-
-	walletID, openBalString, txnBalString, err := getWalletInfo(stub, args[6], "main", "bankcc", cAmtString, dAmtString)
-	if err != nil {
-		return shim.Error(err.Error())
-	}
-
-	// STEP-4 generate txn_balance_object and write it to the Txn_Bal_Ledger
-	argsList := []string{"1", args[0], args[2], args[3], args[4], walletID, openBalString, args[1], args[5], cAmtString, dAmtString, txnBalString, args[8]}
-	argsListStr := strings.Join(argsList, ",")
-	chaincodeArgs := util.ToChaincodeArgs("putTxnInfo", argsListStr)
-	fmt.Println("calling the other chaincode")
-	response := stub.InvokeChaincode("txnbalcc", chaincodeArgs, "myc")
-	if response.Status != shim.OK {
+	// Must be Existing Loan with Status as Collected
+	chaincodeArgs := toChaincodeArgs("loanStatusSancAmt", args[3])
+	response := stub.InvokeChaincode("loancc", chaincodeArgs, "myc")
+	if response.Status == shim.OK {
 		return shim.Error(response.Message)
 	}
-	fmt.Println(string(response.GetPayload()))
-	//successfully updated Bank's main wallet and written the txn thing to the ledger
+	status := strings.Split(string(response.Payload), ",")[0]
+	if status != "collected" {
+		return shim.Error("loan status for loanID " + args[3] + " is not collected")
+	}
+
+	//TXN Amt must be > Zero
+	if (amt < 0) || (amt == 0) {
+		return shim.Error("Transaction Amount in margin refund is less than or equal to zero")
+	}
+
+	//Loan disbursed Wallet balance must be Zero
+	loanDisbursedWalletID, err := getWalletID(stub, "loancc", args[3], "disbursed")
+	if err != nil {
+		return shim.Error("Margin Refund loanDisbursedWalletID " + err.Error())
+	}
+	loanDisbursedWalletValue, err := getWalletValue(stub, loanDisbursedWalletID)
+	if err != nil {
+		return shim.Error("Margin Refund loanDisbursedWalletValue " + err.Error())
+	}
+
+	//Loan Charges Wallet balance must be Zero
+	loanChargesWalletID, err := getWalletID(stub, "loancc", args[3], "charges")
+	if err != nil {
+		return shim.Error("Margin Refund loanChargesWalletID " + err.Error())
+	}
+	loanChargesWalletValue, err := getWalletValue(stub, loanChargesWalletID)
+	if err != nil {
+		return shim.Error("Margin Refund loanChargesWalletValue " + err.Error())
+	}
+
+	// Loan Accrued Wallet balance must be Zero
+	loanAccruedWalletID, err := getWalletID(stub, "loancc", args[3], "accrued")
+	if err != nil {
+		return shim.Error("Margin Refund loanAccruedWalletID " + err.Error())
+	}
+	loanAccruedWalletValue, err := getWalletValue(stub, loanAccruedWalletID)
+	if err != nil {
+		return shim.Error("Margin Refund loanAccruedWalletValue " + err.Error())
+	}
+
+	if (loanDisbursedWalletValue + loanChargesWalletValue + loanAccruedWalletValue) != 0 {
+
+		errString := fmt.Sprintf("The wallet values are not zero loanDisbursedWalletValue: %d; loanChargesWalletValue:%d ;loanAccruedWalletValue:%d", loanDisbursedWalletValue, loanChargesWalletValue, loanAccruedWalletValue)
+		return shim.Error(errString)
+	}
+	//####################################################################################################################
 
 	//#####################################################################################################################
 	//Calling for updating Business Main_Wallet
 	//####################################################################################################################
 
-	cAmtString = args[5]
-	dAmtString = "0"
+	cAmtString := args[5]
+	dAmtString := "0"
 
-	walletID, openBalString, txnBalString, err = getWalletInfo(stub, args[7], "main", "businesscc", cAmtString, dAmtString)
+	walletID, err := getWalletID(stub, "businesscc", args[7], "main")
 	if err != nil {
-		return shim.Error(err.Error())
+		return shim.Error("Margin Refund Business Main WalletID " + err.Error())
 	}
 
-	// STEP-4 generate txn_balance_object and write it to the Txn_Bal_Ledger
-	argsList = []string{"2", args[0], args[2], args[3], args[4], walletID, openBalString, args[1], args[5], cAmtString, dAmtString, txnBalString, args[8]}
-	argsListStr = strings.Join(argsList, ",")
-	chaincodeArgs = util.ToChaincodeArgs("putTxnInfo", argsListStr)
-	fmt.Println("calling the other chaincode")
-	response = stub.InvokeChaincode("txnbalcc", chaincodeArgs, "myc")
+	openBalance, err := getWalletValue(stub, walletID)
+	if err != nil {
+		return shim.Error("Margin Refund Business Main WalletValue " + err.Error())
+	}
+	openBalString := strconv.FormatInt(openBalance, 10)
+	bal := openBalance + amt
+
+	response = walletUpdation(stub, walletID, bal)
 	if response.Status != shim.OK {
 		return shim.Error(response.Message)
 	}
-	fmt.Println(string(response.GetPayload()))
-	//successfully updated Bank's main wallet and written the txn thing to the ledger
+	txnBalString := strconv.FormatInt(bal, 10)
+	// STEP-4 generate txn_balance_object and write it to the Txn_Bal_Ledger
+
+	argsList := []string{"1MR", args[0], args[2], args[3], args[4], walletID, openBalString, args[1], args[5], cAmtString, dAmtString, txnBalString, args[8]}
+	argsListStr := strings.Join(argsList, ",")
+	txnResponse := putInTxnBal(stub, argsListStr)
+	if txnResponse.Status != shim.OK {
+		return shim.Error(txnResponse.Message)
+	}
+
+	//####################################################################################################################
+	//Calling for updating Bank Main_Wallet
+	//####################################################################################################################
+
+	cAmtString = "0"
+	dAmtString = args[5]
+
+	walletID, err = getWalletID(stub, "bankcc", args[6], "main")
+	if err != nil {
+		return shim.Error("Margin Refund Bank Main WalletID " + err.Error())
+	}
+
+	openBalance, err = getWalletValue(stub, walletID)
+	if err != nil {
+		return shim.Error("Margin Refund Bank Main WalletValue " + err.Error())
+	}
+	openBalString = strconv.FormatInt(openBalance, 10)
+
+	//amt, _ = strconv.ParseInt(args[5], 10, 64)
+
+	bal = openBalance - amt
+	txnBalString = strconv.FormatInt(bal, 10)
+
+	response = walletUpdation(stub, walletID, bal)
+	if response.Status != shim.OK {
+		return shim.Error(response.Message)
+	}
+	argsList = []string{"2MR", args[0], args[2], args[3], args[4], walletID, openBalString, args[1], args[5], cAmtString, dAmtString, txnBalString, args[8]}
+	argsListStr = strings.Join(argsList, ",")
+	txnResponse = putInTxnBal(stub, argsListStr)
+	if txnResponse.Status != shim.OK {
+		return shim.Error(txnResponse.Message)
+	}
 
 	//####################################################################################################################
 	//Calling for updating Bank Refund_Wallet
@@ -118,97 +191,98 @@ func newDisbInfo(stub shim.ChaincodeStubInterface, args []string) pb.Response {
 	cAmtString = "0"
 	dAmtString = args[5]
 
-	walletID, openBalString, txnBalString, err = getWalletInfo(stub, args[6], "refund", "bankcc", cAmtString, dAmtString)
+	walletID, err = getWalletID(stub, "bankcc", args[6], "liability")
 	if err != nil {
-		return shim.Error(err.Error())
+		return shim.Error("Margin Refund Bank Refund_WalletID " + err.Error())
 	}
 
-	// STEP-4 generate txn_balance_object and write it to the Txn_Bal_Ledger
-	argsList = []string{"5", args[0], args[2], args[3], args[4], walletID, openBalString, args[1], args[5], cAmtString, dAmtString, txnBalString, args[8]}
+	openBalance, err = getWalletValue(stub, walletID)
+	if err != nil {
+		return shim.Error("Margin Refund Bank Refund_WalletValue " + err.Error())
+	}
+	openBalString = strconv.FormatInt(openBalance, 10)
+
+	//amt, _ = strconv.ParseInt(args[5], 10, 64)
+
+	bal = openBalance - amt
+	txnBalString = strconv.FormatInt(bal, 10)
+
+	response = walletUpdation(stub, walletID, bal)
+	if response.Status != shim.OK {
+		return shim.Error(response.Message)
+	}
+	argsList = []string{"3MR", args[0], args[2], args[3], args[4], walletID, openBalString, args[1], args[5], cAmtString, dAmtString, txnBalString, args[8]}
 	argsListStr = strings.Join(argsList, ",")
-	chaincodeArgs = util.ToChaincodeArgs("putTxnInfo", argsListStr)
-	fmt.Println("calling the other chaincode")
-	response = stub.InvokeChaincode("txnbalcc", chaincodeArgs, "myc")
-	if response.Status != shim.OK {
-		return shim.Error(response.Message)
+	txnResponse = putInTxnBal(stub, argsListStr)
+	if txnResponse.Status != shim.OK {
+		return shim.Error(txnResponse.Message)
 	}
-	fmt.Println(string(response.GetPayload()))
-	//####################################################################################################################
 
 	//####################################################################################################################
-	//Calling for Loan Balance Update
-	//####################################################################################################################
-	CAmt := "0"
-	DAmt := args[5]
-	argStrings := []string{"1loanBal", args[3], args[0], args[2], args[1], CAmt, DAmt} // 6 variables for updateLoanBalance
-	// args[5] -> DAmt for loanBalance
-	argStr := strings.Join(argStrings, ",")
-	chaincodeArgs = util.ToChaincodeArgs("updateLoanBal", argStr)
-	//sending to loanBalUp chaincode not loanBalance Chaincode
-	response = stub.InvokeChaincode("loanbalcc", chaincodeArgs, "myc")
-	if response.Status != shim.OK {
-		return shim.Error(response.Message)
-	}
-	//walletID := string(response.GetPayload())
 
 	return shim.Success(nil)
 }
 
-func getWalletInfo(stub shim.ChaincodeStubInterface, participantID string, walletType string, ccName string, cAmtStr string, dAmtStr string) (string, string, string, error) {
+func putInTxnBal(stub shim.ChaincodeStubInterface, argsListStr string) pb.Response {
+
+	chaincodeArgs := toChaincodeArgs("putTxnInfo", argsListStr)
+	fmt.Println("calling the txnbalcc chaincode from Margin Refund")
+	response := stub.InvokeChaincode("txnbalcc", chaincodeArgs, "myc")
+	if response.Status != shim.OK {
+		return shim.Error(response.Message)
+	}
+	fmt.Println(string(response.Payload))
+	return shim.Success(nil)
+}
+
+func getWalletID(stub shim.ChaincodeStubInterface, ccName string, id string, walletType string) (string, error) {
 
 	// STEP-1
 	// using FromID, get a walletID from bank structure
-	// bankID = bankID
 
-	chaincodeArgs := util.ToChaincodeArgs("getWalletID", participantID, walletType)
+	chaincodeArgs := toChaincodeArgs("getWalletID", id, walletType)
 	response := stub.InvokeChaincode(ccName, chaincodeArgs, "myc")
 	if response.Status != shim.OK {
-		return "", "", "", errors.New(response.Message)
+		return "0", errors.New(response.Message)
 	}
 	walletID := string(response.GetPayload())
+	return walletID, nil
 
-	// STEP-2
-	// getting Balance from walletID
-	// walletFcn := "getWallet"
-	walletArgs := util.ToChaincodeArgs("getWallet", walletID)
-	walletResponse := stub.InvokeChaincode("walletcc", walletArgs, "myc")
-	if walletResponse.Status != shim.OK {
-		return "", "", "", errors.New(walletResponse.Message)
-	}
-	openBalString := string(walletResponse.Payload)
-
-	openBal, err := strconv.ParseInt(openBalString, 10, 64)
-	if err != nil {
-		return "", "", "", errors.New("Error in converting the openBalance")
-	}
-	cAmt, err := strconv.ParseInt(cAmtStr, 10, 64)
-	if err != nil {
-		return "", "", "", errors.New("Error in converting the cAmt")
-	}
-	dAmt, err := strconv.ParseInt(dAmtStr, 10, 64)
-	if err != nil {
-		return "", "", "", errors.New("Error in converting the dAmt")
-	}
-
-	txnBal := openBal - dAmt + cAmt
-	txnBalString := strconv.FormatInt(txnBal, 10)
-
-	// STEP-3
-	// update wallet of ID walletID here, and write it to the wallet_ledger
-	// walletFcn := "updateWallet"
-
-	walletArgs = util.ToChaincodeArgs("updateWallet", walletID, txnBalString)
-	walletResponse = stub.InvokeChaincode("walletcc", walletArgs, "myc")
-	if walletResponse.Status != shim.OK {
-		return "", "", "", errors.New(walletResponse.Message)
-	}
-
-	return walletID, openBalString, txnBalString, nil
 }
 
+func getWalletValue(stub shim.ChaincodeStubInterface, walletID string) (int64, error) {
+
+	walletArgs := toChaincodeArgs("getWallet", walletID)
+	walletResponse := stub.InvokeChaincode("walletcc", walletArgs, "myc")
+	if walletResponse.Status != shim.OK {
+		return 0, errors.New(walletResponse.Message)
+	}
+	balString := string(walletResponse.Payload)
+	balance, _ := strconv.ParseInt(balString, 10, 64)
+	return balance, nil
+}
+
+func walletUpdation(stub shim.ChaincodeStubInterface, walletID string, amt int64) pb.Response {
+
+	txnBalString := strconv.FormatInt(amt, 10)
+	walletArgs := toChaincodeArgs("updateWallet", walletID, txnBalString)
+	walletResponse := stub.InvokeChaincode("walletcc", walletArgs, "myc")
+	if walletResponse.Status != shim.OK {
+		return shim.Error(walletResponse.Message)
+	}
+	return shim.Success(nil)
+
+}
+func toChaincodeArgs(args ...string) [][]byte {
+	bargs := make([][]byte, len(args))
+	for i, arg := range args {
+		bargs[i] = []byte(arg)
+	}
+	return bargs
+}
 func main() {
 	err := shim.Start(new(chainCode))
 	if err != nil {
-		fmt.Println("Unable to start the chaincode")
+		fmt.Println("Unable to start Margin Refund chaincode:", err)
 	}
 }

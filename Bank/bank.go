@@ -15,15 +15,14 @@ type chainCode struct {
 }
 
 type bankInfo struct {
-	// args[0] -> bankId
 	BankName              string
 	BankBranch            string
 	Bankcode              string
-	BankWalletID          string
-	BankAssetWalletID     string
-	BankChargesWalletID   string
-	BankLiabilityWalletID string
-	TDSreceivableWalletID string
+	BankWalletID          string //will take the values for the respective wallet from the user
+	BankAssetWalletID     string //will take the values for the respective wallet from the user
+	BankChargesWalletID   string //will take the values for the respective wallet from the user
+	BankLiabilityWalletID string //will take the values for the respective wallet from the user
+	TDSreceivableWalletID string //will take the values for the respective wallet from the user
 }
 
 func (c *chainCode) Init(stub shim.ChaincodeStubInterface) pb.Response {
@@ -63,11 +62,13 @@ func writeBankInfo(stub shim.ChaincodeStubInterface, args []string) pb.Response 
 		return shim.Error("Invalid number of arguments in writeBankInfo (required:9) given:" + xLenStr)
 	}
 
+	//Checking Bank ID existence
 	response := bankIDexists(stub, args[0])
 	if response.Status != shim.OK {
 		return shim.Error(response.Message)
 	}
 
+	//Checking existence of Bank code
 	codeBranchIterator, err := stub.GetStateByPartialCompositeKey("Bankcode~BankBranch", []string{args[3]})
 	codeBranchData, err := codeBranchIterator.Next()
 	if codeBranchData != nil {

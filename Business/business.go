@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strconv"
+	"strings"
 
 	"github.com/hyperledger/fabric/core/chaincode/shim"
 	pb "github.com/hyperledger/fabric/protos/peer"
@@ -15,20 +16,16 @@ type chainCode struct {
 }
 
 type businessInfo struct {
-	BusinessName              string
-	BusinessAcNo              string
-	BusinessLimit             int64
-	BusinessWalletID          string
-	BusinessLoanWalletID      string
-	BusinessLiabilityWalletID string
-	MaxROI                    float64
-	MinROI                    float64
-	/*
-		NumberOfPrograms          int
-		BusinessExposure          int64
-	*/
-	BusinessPrincipalOutstandingWalletID string
-	BusinessInterestOutstandingWalletID  string
+	BusinessName                         string
+	BusinessAcNo                         string
+	BusinessLimit                        int64
+	BusinessWalletID                     string //will take the values for the respective wallet from the user
+	BusinessLoanWalletID                 string //will take the values for the respective wallet from the user
+	BusinessLiabilityWalletID            string //will take the values for the respective wallet from the user
+	MaxROI                               int64
+	MinROI                               int64
+	BusinessPrincipalOutstandingWalletID string //will take the values for the respective wallet from the user
+	BusinessInterestOutstandingWalletID  string //will take the values for the respective wallet from the user
 }
 
 func (c *chainCode) Init(stub shim.ChaincodeStubInterface) pb.Response {
@@ -54,6 +51,8 @@ func (c *chainCode) Invoke(stub shim.ChaincodeStubInterface) pb.Response {
 		return getWalletID(stub, args)
 	} else if function == "busIDexists" {
 		return busIDexists(stub, args[0])
+	} else if function == "updateBusinessInfo" {
+		return updateBusinessInfo(stub, args)
 	}
 	return shim.Error("No function named " + function + " in Business")
 }
@@ -74,6 +73,9 @@ func putNewBusinessInfo(stub shim.ChaincodeStubInterface, args []string) pb.Resp
 	businessLimitConv, err := strconv.ParseInt(args[3], 10, 64)
 	if err != nil {
 		return shim.Error(err.Error())
+	}
+	if businessLimitConv <= 0 {
+		return shim.Error("Invalid Business Limit value: " + args[3])
 	}
 
 	hash := sha256.New()
@@ -99,29 +101,23 @@ func putNewBusinessInfo(stub shim.ChaincodeStubInterface, args []string) pb.Resp
 	BusinessLiabilityWalletIDsha := hex.EncodeToString(md)
 	createWallet(stub, BusinessLiabilityWalletIDsha, args[6])
 
-	maxROIconvertion, err := strconv.ParseFloat(args[7], 32)
+	maxROIconvertion, err := strconv.ParseInt(args[7], 10, 64)
 	if err != nil {
 		fmt.Printf("Invalid Maximum ROI: %s\n", args[7])
 		return shim.Error(err.Error())
 	}
+	if maxROIconvertion <= 0 {
+		return shim.Error("Invalid Max ROI value: " + args[7])
+	}
 
-	minROIconvertion, err := strconv.ParseFloat(args[8], 32)
+	minROIconvertion, err := strconv.ParseInt(args[8], 10, 64)
 	if err != nil {
 		fmt.Printf("Invalid Minimum ROI: %s\n", args[8])
 		return shim.Error(err.Error())
 	}
-
-	/*
-		numOfPrograms, err := strconv.Atoi(args[9])
-		if err != nil {
-			fmt.Printf("Number of programs should be integer: %s\n", args[9])
-		}
-
-		businessExposureConv, err := strconv.ParseInt(args[10], 10, 64)
-		if err != nil {
-			fmt.Printf("Invalid business exposure: %s\n", args[10])
-		}
-	*/
+	if minROIconvertion <= 0 {
+		return shim.Error("Invalid Min ROI value: " + args[8])
+	}
 
 	// Hashing BusinessPrincipalOutstandingWalletID
 	BusinessPrincipalOutstandingWalletStr := args[2] + "BusinessPrincipalOutstandingWallet"
@@ -194,6 +190,55 @@ func busIDexists(stub shim.ChaincodeStubInterface, busID string) pb.Response {
 		return shim.Error("BusinessId " + busID + " exits. Cannot create new ID")
 	}
 	return shim.Success(nil)
+}
+
+func updateBusinessInfo(stub shim.ChaincodeStubInterface, args []string) pb.Response {
+
+	/*
+		args[0] -> BusinessId
+		args[1] -> Business Limit / MAX ROI / MAX ROI
+		args[2] -> values
+	*/
+	if len(args) != 3 {
+		xLenStr := strconv.Itoa(len(args))
+		return shim.Error("Invalid number of arguments in updateBusinessInfo(business) (required:3) given:" + xLenStr)
+	}
+
+	parsedBusinessInfo := businessInfo{}
+	businessIDvalue, err := stub.GetState(args[0])
+	if err != nil {
+		return shim.Error("Failed to get the business information(updateBusinessInfo): " + err.Error())
+	} else if businessIDvalue == nil {
+		return shim.Error("No information is avalilable on this (updateBusinessInfo) businessID " + args[0])
+	}
+
+	err = json.Unmarshal(businessIDvalue, &parsedBusinessInfo)
+	if err != nil {
+		return shim.Error("Unable to parse businessInfo into the structure(updateBusinessInfo) " + err.Error())
+	}
+
+	lowerStr := strings.ToLower(args[1])
+
+	value, err := strconv.ParseInt(args[2], 10, 64)
+	if err != nil {
+		return shim.Error("value (updateBusinessInfo):" + err.Error())
+	}
+
+	if lowerStr == "business limit" {
+		parsedBusinessInfo.BusinessLimit = value
+	} else if lowerStr == "max roi" {
+		parsedBusinessInfo.MaxROI = value
+	} else if lowerStr == "min roi" {
+		parsedBusinessInfo.MinROI = value
+	}
+
+	parsedBusinessInfoBytes, _ := json.Marshal(parsedBusinessInfo)
+	err = stub.PutState(args[0], parsedBusinessInfoBytes)
+	if err != nil {
+		return shim.Error(err.Error())
+	}
+	return shim.Success(nil)
+
 }
 func getWalletID(stub shim.ChaincodeStubInterface, args []string) pb.Response {
 

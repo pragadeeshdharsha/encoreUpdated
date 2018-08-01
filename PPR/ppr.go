@@ -23,7 +23,7 @@ type pprInfo struct {
 	ProgramBusinessDiscountPercentage string //use float64 for parsing
 	StaleDays                         int
 	RepaymentAcNo                     string
-	RepaymentWalletID                 string
+	RepaymentWalletID                 string //will be taken from business Id
 }
 
 func (c *chainCode) Init(stub shim.ChaincodeStubInterface) pb.Response {
@@ -123,7 +123,15 @@ func createPPR(stub shim.ChaincodeStubInterface, args []string) pb.Response {
 		return shim.Error(err.Error())
 	}
 
-	ppr := pprInfo{args[1], args[2], relationshipLower, PBLimit, PBroi, PBDperiod, args[7], sDays, args[9], args[10]}
+	//Wallet ID for repayment
+	chaincodeArgs = toChaincodeArgs("getWalletID", args[2], "main")
+	response = stub.InvokeChaincode("businesscc", chaincodeArgs, "myc")
+	if response.Status != shim.OK {
+		return shim.Error(response.Message)
+	}
+	repayWalletID := string(response.GetPayload())
+
+	ppr := pprInfo{args[1], args[2], relationshipLower, PBLimit, PBroi, PBDperiod, args[7], sDays, args[9], repayWalletID}
 	pprBytes, err := json.Marshal(ppr)
 	err = stub.PutState(args[0], pprBytes)
 

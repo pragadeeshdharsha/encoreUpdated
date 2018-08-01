@@ -1,12 +1,10 @@
 package main
 
 import (
-	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"reflect"
 	"strconv"
 	"strings"
 	"time"
@@ -23,7 +21,7 @@ type loanInfo struct {
 	ExposureBusinessID          string //buyer for now
 	ProgramID                   string
 	SanctionAmt                 int64
-	SanctionDate                time.Time //with time
+	SanctionDate                time.Time //auto generated as created
 	SanctionAuthority           string
 	ROI                         float64
 	DueDate                     time.Time
@@ -55,15 +53,17 @@ func (c *chainCode) Invoke(stub shim.ChaincodeStubInterface) pb.Response {
 		return loanStatusSancAmt(stub, args[0])
 	} else if function == "getWalletID" {
 		return getWalletID(stub, args)
+	} else if function == "getSellerID" {
+		return getSellerID(stub, args[0])
 	}
 	return shim.Error("No function named " + function + " in Loan")
 }
 
 func newLoanInfo(stub shim.ChaincodeStubInterface, args []string) pb.Response {
 
-	if len(args) != 14 {
+	if len(args) != 15 {
 		xLenStr := strconv.Itoa(len(args))
-		return shim.Error("Invalid number of arguments in newLoanInfo(loan) (required:14) given: " + xLenStr)
+		return shim.Error("Invalid number of arguments in newLoanInfo(loan) (required:15) given: " + xLenStr)
 	}
 	//Checking existence of loanID
 	response := loanIDexists(stub, args[0])
@@ -215,6 +215,7 @@ func loanStatusSancAmt(stub shim.ChaincodeStubInterface, loanID string) pb.Respo
 
 func getWalletID(stub shim.ChaincodeStubInterface, args []string) pb.Response {
 
+	args = strings.Split(args[0], ",")
 	loanBytes, err := stub.GetState(args[0])
 	if err != nil {
 		return shim.Error(err.Error())
@@ -271,30 +272,36 @@ func getLoanInfo(stub shim.ChaincodeStubInterface, args []string) pb.Response {
 	if err != nil {
 		return shim.Error(err.Error())
 	}
+
 	loanString := fmt.Sprintf("%+v", loan)
 	fmt.Printf("Loan Info:%s\n ", loanString)
-	loanBalString := strconv.FormatInt(loan.LoanBalance, 10)
-	loanStatus := loan.LoanStatus
-	loanSanctionString := strconv.FormatInt(loan.SanctionAmt, 10)
-	var xString bytes.Buffer
 
-	xString.WriteString(loanBalString)
-	xString.WriteString(",")
-	xString.WriteString(loanStatus)
-	xString.WriteString(",")
-	xString.WriteString(loanSanctionString)
-	fmt.Println("args:", xString.String())
-	fmt.Println("Type:", reflect.TypeOf(xString.String()))
-	fmt.Println("Returning the values")
-	//xString = sanctionString + "," + loanStatus
-	return shim.Success([]byte(xString.String()))
+	return shim.Success(nil)
 }
 
+func getSellerID(stub shim.ChaincodeStubInterface, loanID string) pb.Response {
+
+	loanBytes, err := stub.GetState(loanID)
+	if err != nil {
+		return shim.Error(err.Error())
+	} else if loanBytes == nil {
+		return shim.Error("No data exists on this loanID (getSellerID): " + loanID)
+	}
+
+	loan := loanInfo{}
+	err = json.Unmarshal(loanBytes, &loan)
+	if err != nil {
+		return shim.Error(err.Error())
+	}
+
+	return shim.Success([]byte(loan.LoanStatus))
+}
 func updateLoanInfo(stub shim.ChaincodeStubInterface, args []string) pb.Response {
 
 	/*
 		Updating the variables for loan structure
 	*/
+	args = strings.Split(args[0], ",")
 	loanBytes, err := stub.GetState(args[0])
 	if err != nil {
 		return shim.Error(err.Error())
@@ -320,24 +327,14 @@ func updateLoanInfo(stub shim.ChaincodeStubInterface, args []string) pb.Response
 		}
 		return shim.Success([]byte("sanction updated succesfully"))
 
-	} else if len(args) == 3 { // used when called from loanBal
-		//xLenStr := strconv.Itoa(len(args))
-		//return shim.Error("Invalid number of arguments in updateLoanInfo (required:3) given:" + xLenStr)
-
-		// This "if" condition will be executed when loanBalance chaincode call for updation
-
-		loan.LoanStatus = args[1]
-		loan.LoanBalance, err = strconv.ParseInt(args[2], 10, 64)
-		if err != nil {
-			return shim.Error("Unable to parse int in updateLoanInfo:" + err.Error())
-		}
-
+	} else if (args[1] == "repayment") && ((args[2] == "collected") || (args[2] == "part collected")) {
+		loan.LoanStatus = args[2]
 		loanBytes, _ = json.Marshal(loan)
 		err = stub.PutState(args[0], loanBytes)
 		if err != nil {
-			return shim.Error("Error in loan updation " + err.Error())
+			return shim.Error("Error in loan status updation " + err.Error())
 		}
-		return shim.Success([]byte("Successfully updated loan with data from loanbal"))
+		return shim.Success([]byte("Successfully updated loan status with data from repayment"))
 	}
 	return shim.Error("Invalid info for update loan")
 }

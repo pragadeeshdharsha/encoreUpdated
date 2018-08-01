@@ -48,21 +48,45 @@ func newRepayInfo(stub shim.ChaincodeStubInterface, args []string) pb.Response {
 	 *PprID   string    //args[9]
 	 */
 
-	amt, _ := strconv.ParseInt(args[5], 10, 64)
-
 	///////////////////////////////////////////////////////////////////////////////////////////////////
 	// 				UPDATING WALLETS																///
 	///////////////////////////////////////////////////////////////////////////////////////////////////
 	// The transaction object has been created and written into the ledger
 	// The JSON file is 'transaction'function
-	// Now to create a TXN_Bal_Update obj for 4 times
+	// Now to create a TXN_Bal_Update obj for 10 times
 	// Calling TXN_Balance CC based on TXN_Type {ex: Disbursement}
 	/*
-	 *	bank main wallet reduced
-	 * 	bank asset wallet incresed
-	 *	business main wallet increased
-	 *	business loan wallet increased
-	 */
+			    a. Debiting (decreasing) Business Wallet (Buyer)
+		            i. Txn amt
+		        b. Crediting (Increasing) Bank Wallet
+		            i. Txn amt
+		        c. Debiting (decreasing) Bank Asset Wallet
+		            i. Loan Disbursed Wallet Balance + Loan Charges Wallet Balance
+		        d. Crediting (Increasing) Bank Refund Wallet (if applicable)
+		            i. Txn Amt – Loan Disbursed Wallet balance – Loan Charges Wallet Balance
+		        e. Debiting (decreasing) Business Loan Wallet (Seller)
+		            i. If Txn Amt is >/= (Loan Charges Wallet Balance + Loan Disbursed Wallet Balance)
+		                1. Loan disbursed Wallet Balance + Loan Charges Wallet Balance
+		            ii. If Txn Amt is  < (Loan Charges Wallet Balance + Loan Disbursed Wallet Balance)
+		                1. Txn Amt – Loan Charges Wallet Balance
+		        f. Debiting (decreasing) Business Charges O/s Wallet
+		            i. Loan Charges Wallet Balance
+		        g. Debiting (decreasing) Business Principal O/s Wallet
+		            i. Loan Disbursed Wallet Balance
+		        h. Debiting (Decreasing) Loan Charges Wallet
+		            i. Loan Charges Wallet Balance
+		        i. Debiting (Decreasing) Loan Disbursed Wallet
+		            i. If Txn Amt is >/= (Loan Charges Wallet Balance + Loan Disbursed Wallet Balance)
+		                1. Loan Disbursed Wallet is reduced to Zero
+		                2. Loan Status is updated to Collected
+		            ii. If Txn Amt is  < (Loan Charges Wallet Balance + Loan Disbursed Wallet Balance)
+		                1. Txn Amt – Loan Charges Wallet Balance
+		                2. Loan Status is updated to Part Collected
+		        j. Debiting (Decreasing) Business Liability Wallet (Buyer)
+		            i. Txn Amt
+	*/
+
+	amt, _ := strconv.ParseInt(args[5], 10, 64)
 
 	//#####################################################################################################################
 	//Calling for updating Business Main_Wallet
@@ -80,26 +104,22 @@ func newRepayInfo(stub shim.ChaincodeStubInterface, args []string) pb.Response {
 	if err != nil {
 		return shim.Error("Repayment Business Main WalletValue " + err.Error())
 	}
-
+	openBalString := strconv.FormatInt(openBalance, 10)
 	bal := openBalance - amt
 
 	response := walletUpdation(stub, walletID, bal)
 	if response.Status != shim.OK {
 		return shim.Error(response.Message)
 	}
-
+	txnBalString := strconv.FormatInt(bal, 10)
 	// STEP-4 generate txn_balance_object and write it to the Txn_Bal_Ledger
-	/*
-		argsList := []string{"5", args[0], args[2], args[3], args[4], walletID, openBalString, args[1], args[5], cAmtString, dAmtString, txnBalString, args[8]}
-		argsListStr := strings.Join(argsList, ",")
-		chaincodeArgs := toChaincodeArgs("putTxnInfo", argsListStr)
-		fmt.Println("calling the other chaincode business main")
-		response := stub.InvokeChaincode("txnbalcc", chaincodeArgs, "myc")
-		if response.Status != shim.OK {
-			return shim.Error(response.Message)
-		}
-		fmt.Println(string(response.GetPayload()))
-	*/
+
+	argsList := []string{"1rep", args[0], args[2], args[3], args[4], walletID, openBalString, args[1], args[5], cAmtString, dAmtString, txnBalString, args[8]}
+	argsListStr := strings.Join(argsList, ",")
+	txnResponse := putInTxnBal(stub, argsListStr)
+	if txnResponse.Status != shim.OK {
+		return shim.Error(txnResponse.Message)
+	}
 
 	//####################################################################################################################
 	//Calling for updating Bank Main_Wallet
@@ -117,28 +137,23 @@ func newRepayInfo(stub shim.ChaincodeStubInterface, args []string) pb.Response {
 	if err != nil {
 		return shim.Error("Repayment Bank Main WalletValue " + err.Error())
 	}
+	openBalString = strconv.FormatInt(openBalance, 10)
 
 	//amt, _ = strconv.ParseInt(args[5], 10, 64)
 
 	bal = openBalance + amt
+	txnBalString = strconv.FormatInt(bal, 10)
 
 	response = walletUpdation(stub, walletID, bal)
 	if response.Status != shim.OK {
 		return shim.Error(response.Message)
 	}
-
-	/*
-		// STEP-4 generate txn_balance_object and write it to the Txn_Bal_Ledger
-		argsList = []string{"6", args[0], args[2], args[3], args[4], walletID, openBalString, args[1], args[5], cAmtString, dAmtString, txnBalString, args[8]}
-		argsListStr = strings.Join(argsList, ",")
-		chaincodeArgs = toChaincodeArgs("putTxnInfo", argsListStr)
-		fmt.Println("calling the other chaincode bank main")
-		response = stub.InvokeChaincode("txnbalcc", chaincodeArgs, "myc")
-		if response.Status != shim.OK {
-			return shim.Error(response.Message)
-		}
-		fmt.Println(string(response.GetPayload()))
-	*/
+	argsList = []string{"2rep", args[0], args[2], args[3], args[4], walletID, openBalString, args[1], args[5], cAmtString, dAmtString, txnBalString, args[8]}
+	argsListStr = strings.Join(argsList, ",")
+	txnResponse = putInTxnBal(stub, argsListStr)
+	if txnResponse.Status != shim.OK {
+		return shim.Error(txnResponse.Message)
+	}
 
 	//####################################################################################################################
 	//Calling for updating Bank Asset Wallet
@@ -176,34 +191,74 @@ func newRepayInfo(stub shim.ChaincodeStubInterface, args []string) pb.Response {
 	if err != nil {
 		return shim.Error("Repayment Bank Asset WalletValue " + err.Error())
 	}
+	openBalString = strconv.FormatInt(openBalance, 10)
 
 	bal = openBalance - loanChargesWalletValue - loanDisbursedWalletValue
+	txnBalString = strconv.FormatInt(bal, 10)
 
 	response = walletUpdation(stub, walletID, bal)
 	if response.Status != shim.OK {
 		return shim.Error("Repayment Bank Asset Wallet " + response.Message)
 	}
-	dAmtString = strconv.FormatInt(bal, 10)
+	dAmt := loanChargesWalletValue + loanDisbursedWalletValue
+	dAmtString = strconv.FormatInt(dAmt, 10)
+	argsList = []string{"3rep", args[0], args[2], args[3], args[4], walletID, openBalString, args[1], args[5], cAmtString, dAmtString, txnBalString, args[8]}
+	argsListStr = strings.Join(argsList, ",")
+	txnResponse = putInTxnBal(stub, argsListStr)
+	if txnResponse.Status != shim.OK {
+		return shim.Error(txnResponse.Message)
+	}
 
 	//####################################################################################################################
 	//Calling for updating Bank Refund_Wallet
 	//####################################################################################################################
 
-	//####################################################################################################################
-	//4.Calling for updating Business Loan_Wallet (seller)
-	//####################################################################################################################
-
-	// geting seller's ID using instrument no
-
-	cAmtString = "0"
-	chaincodeArgs := toChaincodeArgs("getSellerIDnAmt", args[4])
-	response = stub.InvokeChaincode("instrumentcc", chaincodeArgs, "myc")
-	if response.Status != shim.OK {
-		return shim.Error("Instrument refrence no " + args[4] + " does not exits")
+	dAmtString = "0"
+	walletID, err = getWalletID(stub, "bankcc", args[7], "liability")
+	if err != nil {
+		return shim.Error("Repayment Bank Liability WalletID " + err.Error())
 	}
 
-	sellerID := strings.Split(string(response.Payload), ",")[0]
+	openBalance, err = getWalletValue(stub, walletID)
+	if err != nil {
+		return shim.Error("Repayment Bank Liability WalletValue " + err.Error())
+	}
+	openBalString = strconv.FormatInt(openBalance, 10)
 
+	cAmt := amt - loanChargesWalletValue - loanDisbursedWalletValue
+	if cAmt > 0 {
+		bal = openBalance + cAmt
+	} else {
+		bal = openBalance
+	}
+	response = walletUpdation(stub, walletID, bal)
+	if response.Status != shim.OK {
+		return shim.Error("Repayment Bank Liability Wallet " + response.Message)
+	}
+	txnBalString = strconv.FormatInt(bal, 10)
+	cAmtString = strconv.FormatInt(cAmt, 10)
+
+	argsList = []string{"4rep", args[0], args[2], args[3], args[4], walletID, openBalString, args[1], args[5], cAmtString, dAmtString, txnBalString, args[8]}
+	argsListStr = strings.Join(argsList, ",")
+	txnResponse = putInTxnBal(stub, argsListStr)
+	if txnResponse.Status != shim.OK {
+		return shim.Error(txnResponse.Message)
+	}
+
+	//####################################################################################################################
+	//Calling for updating Business Loan_Wallet (seller)
+	//####################################################################################################################
+
+	// geting seller's ID using loan ID
+
+	cAmtString = "0"
+	chaincodeArgs := toChaincodeArgs("getSellerID", args[3])
+	response = stub.InvokeChaincode("loancc", chaincodeArgs, "myc")
+	if response.Status != shim.OK {
+		return shim.Error(response.Message)
+	}
+
+	sellerID := string(response.Payload)
 	walletID, err = getWalletID(stub, "businesscc", sellerID, "loan")
 	if err != nil {
 		return shim.Error("Repayment Business Loan_WalletID (seller) " + err.Error())
@@ -213,26 +268,61 @@ func newRepayInfo(stub shim.ChaincodeStubInterface, args []string) pb.Response {
 	if err != nil {
 		return shim.Error("Repayment Business Loan_WalletValue (seller) " + err.Error())
 	}
-
-	var calAmt int64
+	openBalString = strconv.FormatInt(openBalance, 10)
 
 	if (amt > loanChargesWalletValue+loanDisbursedWalletValue) || (amt == loanChargesWalletValue+loanDisbursedWalletValue) {
-		calAmt = loanChargesWalletValue + loanDisbursedWalletValue
+		dAmt = loanChargesWalletValue + loanDisbursedWalletValue
 	} else if amt < loanChargesWalletValue+loanDisbursedWalletValue {
-		calAmt = amt - loanChargesWalletValue
+		dAmt = amt - loanChargesWalletValue
 	}
 
-	bal = openBalance - calAmt
-	dAmtString = strconv.FormatInt(bal, 10)
+	bal = openBalance - dAmt
+	txnBalString = strconv.FormatInt(bal, 10)
 
 	response = walletUpdation(stub, walletID, bal)
 	if response.Status != shim.OK {
 		return shim.Error("Repayment Business Loan_Wallet (seller) " + response.Message)
 	}
+	dAmtString = strconv.FormatInt(dAmt, 10)
+
+	argsList = []string{"5rep", args[0], args[2], args[3], args[4], walletID, openBalString, args[1], args[5], cAmtString, dAmtString, txnBalString, args[8]}
+	argsListStr = strings.Join(argsList, ",")
+	txnResponse = putInTxnBal(stub, argsListStr)
+	if txnResponse.Status != shim.OK {
+		return shim.Error(txnResponse.Message)
+	}
 
 	//####################################################################################################################
-	//Calling for updating Business Charges O/s Wallet
+	//Calling for updating Business Charges/Interest O/s Wallet
 	//####################################################################################################################
+
+	cAmtString = "0"
+	walletID, err = getWalletID(stub, "businesscc", args[6], "interestOut")
+	if err != nil {
+		return shim.Error("Repayment Business Charges/Interest O/s WalletID " + err.Error())
+	}
+
+	openBalance, err = getWalletValue(stub, walletID)
+	if err != nil {
+		return shim.Error("Repayment Business Charges/Interest O/s WalletValue " + err.Error())
+	}
+	openBalString = strconv.FormatInt(openBalance, 10)
+	dAmt = loanChargesWalletValue
+	bal = openBalance - loanChargesWalletValue
+	txnBalString = strconv.FormatInt(bal, 10)
+
+	response = walletUpdation(stub, walletID, bal)
+	if response.Status != shim.OK {
+		return shim.Error("Repayment Business Charges/Interest O/s Wallet " + response.Message)
+	}
+	dAmtString = strconv.FormatInt(dAmt, 10)
+
+	argsList = []string{"6rep", args[0], args[2], args[3], args[4], walletID, openBalString, args[1], args[5], cAmtString, dAmtString, txnBalString, args[8]}
+	argsListStr = strings.Join(argsList, ",")
+	txnResponse = putInTxnBal(stub, argsListStr)
+	if txnResponse.Status != shim.OK {
+		return shim.Error(txnResponse.Message)
+	}
 
 	//####################################################################################################################
 	//Calling for updating Business Principal O/s Wallet
@@ -248,72 +338,154 @@ func newRepayInfo(stub shim.ChaincodeStubInterface, args []string) pb.Response {
 	if err != nil {
 		return shim.Error("Repayment Business Principal O/s WalletValue " + err.Error())
 	}
+	openBalString = strconv.FormatInt(openBalance, 10)
 
 	bal = openBalance - loanDisbursedWalletValue
+	txnBalString = strconv.FormatInt(bal, 10)
 
 	response = walletUpdation(stub, walletID, bal)
 	if response.Status != shim.OK {
 		return shim.Error("Repayment Business Principal O/s Wallet " + response.Message)
 	}
-	dAmtString = strconv.FormatInt(bal, 10)
+	dAmt = loanDisbursedWalletValue
+	dAmtString = strconv.FormatInt(dAmt, 10)
+
+	argsList = []string{"7rep", args[0], args[2], args[3], args[4], walletID, openBalString, args[1], args[5], cAmtString, dAmtString, txnBalString, args[8]}
+	argsListStr = strings.Join(argsList, ",")
+	txnResponse = putInTxnBal(stub, argsListStr)
+	if txnResponse.Status != shim.OK {
+		return shim.Error(txnResponse.Message)
+	}
 
 	//####################################################################################################################
 	//Calling for updating Loan Charges Wallet
 	//####################################################################################################################
 
+	cAmtString = "0"
+	walletID, err = getWalletID(stub, "loan", args[3], "charges")
+	if err != nil {
+		return shim.Error("Repayment Loan Charges WalletID " + err.Error())
+	}
+
+	openBalance, err = getWalletValue(stub, walletID)
+	if err != nil {
+		return shim.Error("Repayment Loan Charges WalletValue " + err.Error())
+	}
+	openBalString = strconv.FormatInt(openBalance, 10)
+
+	bal = openBalance - loanChargesWalletValue
+	txnBalString = strconv.FormatInt(bal, 10)
+
+	response = walletUpdation(stub, walletID, bal)
+	if response.Status != shim.OK {
+		return shim.Error("Repayment Loan Charges Wallet " + response.Message)
+	}
+	dAmt = loanChargesWalletValue
+	dAmtString = strconv.FormatInt(dAmt, 10)
+
+	argsList = []string{"8rep", args[0], args[2], args[3], args[4], walletID, openBalString, args[1], args[5], cAmtString, dAmtString, txnBalString, args[8]}
+	argsListStr = strings.Join(argsList, ",")
+	txnResponse = putInTxnBal(stub, argsListStr)
+	if txnResponse.Status != shim.OK {
+		return shim.Error(txnResponse.Message)
+	}
+
+	//####################################################################################################################
+	//Calling for updating Loan Disbursed Wallet
+	//####################################################################################################################
+
+	cAmtString = "0"
+	walletID, err = getWalletID(stub, "loan", args[3], "disbursed")
+	if err != nil {
+		return shim.Error("Repayment Loan Disbursed WalletID " + err.Error())
+	}
+
+	openBalance, err = getWalletValue(stub, walletID)
+	if err != nil {
+		return shim.Error("Repayment Loan Disbursed WalletValue " + err.Error())
+	}
+	openBalString = strconv.FormatInt(openBalance, 10)
+
+	if (amt > loanChargesWalletValue+loanDisbursedWalletValue) || (amt == loanChargesWalletValue+loanDisbursedWalletValue) {
+		bal = 0
+		dAmt = openBalance
+		chaincodeArgs := toChaincodeArgs("updateLoanInfo", args[3], "repayment", "collected")
+		response := stub.InvokeChaincode("loancc", chaincodeArgs, "myc")
+		if response.Status != shim.OK {
+			return shim.Error(response.Message)
+		}
+	} else if amt < loanChargesWalletValue+loanDisbursedWalletValue {
+		dAmt = amt - loanChargesWalletValue
+		bal = openBalance - dAmt
+		chaincodeArgs := toChaincodeArgs("updateLoanInfo", args[3], "repayment", "part collected")
+		response := stub.InvokeChaincode("loancc", chaincodeArgs, "myc")
+		if response.Status != shim.OK {
+			return shim.Error(response.Message)
+		}
+	}
+	txnBalString = strconv.FormatInt(bal, 10)
+	response = walletUpdation(stub, walletID, bal)
+	if response.Status != shim.OK {
+		return shim.Error("Repayment Loan Charges Wallet " + response.Message)
+	}
+	dAmtString = strconv.FormatInt(dAmt, 10)
+
+	argsList = []string{"9rep", args[0], args[2], args[3], args[4], walletID, openBalString, args[1], args[5], cAmtString, dAmtString, txnBalString, args[8]}
+	argsListStr = strings.Join(argsList, ",")
+	txnResponse = putInTxnBal(stub, argsListStr)
+	if txnResponse.Status != shim.OK {
+		return shim.Error(txnResponse.Message)
+	}
+
+	//####################################################################################################################
+	//Calling for updating Business Liability Wallet (Buyer)
+	//####################################################################################################################
+
+	cAmtString = "0"
+	dAmtString = args[5]
+
+	walletID, err = getWalletID(stub, "business", args[6], "liability")
+	if err != nil {
+		return shim.Error("Repayment Bank Liability WalletID " + err.Error())
+	}
+
+	openBalance, err = getWalletValue(stub, walletID)
+	if err != nil {
+		return shim.Error("Repayment Bank Liability WalletValue " + err.Error())
+	}
+	openBalString = strconv.FormatInt(openBalance, 10)
+
+	bal = openBalance - amt
+	txnBalString = strconv.FormatInt(bal, 10)
+
+	response = walletUpdation(stub, walletID, bal)
+	if response.Status != shim.OK {
+		return shim.Error(response.Message)
+	}
+
+	argsList = []string{"10rep", args[0], args[2], args[3], args[4], walletID, openBalString, args[1], args[5], cAmtString, dAmtString, txnBalString, args[8]}
+	argsListStr = strings.Join(argsList, ",")
+	txnResponse = putInTxnBal(stub, argsListStr)
+	if txnResponse.Status != shim.OK {
+		return shim.Error(txnResponse.Message)
+	}
+
+	//####################################################################################################################
+
 	return shim.Success(nil)
 }
 
-/*
-func getWalletInfo(stub shim.ChaincodeStubInterface, participantID string, walletType string, ccName string, cAmtStr string, dAmtStr string) (string, string, string, error) {
+func putInTxnBal(stub shim.ChaincodeStubInterface, argsListStr string) pb.Response {
 
-	//STEP-1
-	// Getting wallet id from the chaincode
-	walletID, err := getWalletIDonly(stub, ccName, participantID, walletType)
-	if err != nil {
-		return "", "", "", err
+	chaincodeArgs := toChaincodeArgs("putTxnInfo", argsListStr)
+	fmt.Println("calling the txnbalcc chaincode from repayment")
+	response := stub.InvokeChaincode("txnbalcc", chaincodeArgs, "myc")
+	if response.Status != shim.OK {
+		return shim.Error(response.Message)
 	}
-
-	// STEP-2
-	// getting Balance from walletID
-	// walletFcn := "getWallet"
-	walletArgs := toChaincodeArgs("getWallet", walletID)
-	walletResponse := stub.InvokeChaincode("walletcc", walletArgs, "myc")
-	if walletResponse.Status != shim.OK {
-		return "", "", "", errors.New(walletResponse.Message)
-	}
-	openBalString := string(walletResponse.Payload)
-
-	openBal, err := strconv.ParseInt(openBalString, 10, 64)
-	if err != nil {
-		return "", "", "", errors.New("Error in converting the openBalance")
-	}
-	cAmt, err := strconv.ParseInt(cAmtStr, 10, 64)
-	if err != nil {
-		return "", "", "", errors.New("Error in converting the cAmt")
-	}
-	dAmt, err := strconv.ParseInt(dAmtStr, 10, 64)
-	if err != nil {
-		return "", "", "", errors.New("Error in converting the dAmt")
-	}
-
-	txnBal := openBal - dAmt + cAmt
-	txnBalString := strconv.FormatInt(txnBal, 10)
-
-	// STEP-3
-	// update wallet of ID walletID here, and write it to the wallet_ledger
-	// walletFcn := "updateWallet"
-
-	walletArgs = toChaincodeArgs("updateWallet", walletID, txnBalString)
-	walletResponse = stub.InvokeChaincode("walletcc", walletArgs, "myc")
-	if walletResponse.Status != shim.OK {
-		return "", "", "", errors.New(walletResponse.Message)
-	}
-
-	return walletID, openBalString, txnBalString, nil
+	fmt.Println(string(response.Payload))
+	return shim.Success(nil)
 }
-
-*/
 
 func getWalletID(stub shim.ChaincodeStubInterface, ccName string, id string, walletType string) (string, error) {
 
@@ -363,6 +535,6 @@ func toChaincodeArgs(args ...string) [][]byte {
 func main() {
 	err := shim.Start(new(chainCode))
 	if err != nil {
-		fmt.Println("Unable to start the chaincode:", err)
+		fmt.Println("Unable to start Repayment chaincode:", err)
 	}
 }

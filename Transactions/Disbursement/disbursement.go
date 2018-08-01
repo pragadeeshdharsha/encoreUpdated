@@ -87,14 +87,16 @@ func newDisbInfo(stub shim.ChaincodeStubInterface, args []string) pb.Response {
 	///////////////////////////////////////////////////////////////////////////////////////////////////
 	// The transaction object has been created and written into the ledger
 	// The JSON file is 'transaction'function
-	// Now to create a TXN_Bal_Update obj for 4 times
-	// Calling TXN_Balance CC based on TXN_Type {ex: Disbursement}
+	// Now to create a TXN_Bal_Update obj for 6 times
+	// Calling TXN_Balance CC based on TXN_Type
 	/*
-	 *	bank main wallet reduced
-	 * 	bank asset wallet incresed
-	 *	business main wallet increased
-	 *	business loan wallet increased
-	 */
+	   a. Debiting (Reducing) Bank Wallet
+	   b. Crediting (Increasing) Business Wallet
+	   c. Crediting (Increasing) Bank Asset Wallet
+	   d. Crediting (Increasing) Business Loan Wallet
+	   e. Crediting (Increasing) Business Principal O/s Wallet
+	   f. Crediting (Increasing) Loan Disbursed Wallet
+	*/
 
 	//####################################################################################################################
 	//Calling for updating Bank Main_Wallet
