@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/hyperledger/fabric/core/chaincode/shim"
@@ -17,17 +18,17 @@ type chainCode struct {
 
 type instrumentInfo struct {
 	//Instrument ID for storing is auto generated
-	InstrumentRefNo string
-	InstrumenDate   time.Time
-	SellBusinessID  string
-	BuyBusinsessID  string
-	InsAmount       string // use int64 for convertion
-	InsStatus       string // not required
-	InsDueDate      time.Time
-	ProgramID       string
-	PPRid           string
-	UploadBatchNo   string
-	ValueDate       time.Time
+	InstrumentRefNo string    //[0]
+	InstrumenDate   time.Time //[1]
+	SellBusinessID  string    //[2]
+	BuyBusinsessID  string    //[3]
+	InsAmount       string    //[4]// use int64 for convertion
+	InsStatus       string    // not required
+	InsDueDate      time.Time //[5]
+	ProgramID       string    //[6]
+	PPRid           string    //[7]
+	UploadBatchNo   string    //[8]
+	ValueDate       time.Time //[9]
 }
 
 func (c *chainCode) Init(stub shim.ChaincodeStubInterface) pb.Response {
@@ -36,7 +37,7 @@ func (c *chainCode) Init(stub shim.ChaincodeStubInterface) pb.Response {
 
 	refNoSellIDkey, err := stub.CreateCompositeKey(indexName, []string{inst.InstrumentRefNo, inst.SellBusinessID, inst.InsAmount})
 	if err != nil {
-		return shim.Error("Composite key InstrumentRefNo~SellBusinessID can not be created (instrument)")
+		return shim.Error("Composite key InstrumentRefNo~SellBusinessID~InsAmount can not be created (instrument)")
 	}
 	value := []byte{0x00}
 	stub.PutState(refNoSellIDkey, value)
@@ -46,16 +47,17 @@ func (c *chainCode) Init(stub shim.ChaincodeStubInterface) pb.Response {
 func (c *chainCode) Invoke(stub shim.ChaincodeStubInterface) pb.Response {
 	function, args := stub.GetFunctionAndParameters()
 	if function == "enterInstrument" {
+		//Used to enter new instrument data
 		return enterInstrument(stub, args)
 	} else if function == "getInstrument" {
+		//used to retrieve the instrument data
 		return getInstrument(stub, args)
-	} /*
-		 else if function == "getSellerIDnAmt" {
-			return getSellerIDnAmt(stub, args)
-		}
-	*/
+	} else if function == "updateInsStatus" {
+		//Updates instrument status accordingly
+		return updateInsStatus(stub, args)
+	}
 
-	return shim.Error("No function named " + function + " in Instrument")
+	return shim.Error("No function named " + function + " in Instrumentsssss")
 
 }
 
@@ -72,6 +74,7 @@ func enterInstrument(stub shim.ChaincodeStubInterface, args []string) pb.Respons
 	if refNoSellIDdata != nil {
 		return shim.Error("Instrument Reference No. – Supplier ID pair already exists")
 	}
+	defer refNoSellIDiterator.Close()
 
 	//Checking existence of ProgramID
 	chaincodeArgs := toChaincodeArgs("programIDexists", args[7])
@@ -112,29 +115,15 @@ func enterInstrument(stub shim.ChaincodeStubInterface, args []string) pb.Respons
 		return shim.Error(err.Error())
 	}
 
-	/*		insStatusValues := map[string]bool{
-					"open":              true,
-					"sanctioned":        true,
-					"part disbursed":    true,
-					"disbursed":         true,
-					"part collected":    true,
-					"collected/settled": true,
-					"overdue":           true,
-				}
-
-
-			insStatusValuesLower := strings.ToLower(args[5])
-			if !insStatusValues[insStatusValuesLower] {
-				return shim.Error("Invalid Instrument Status " + args[5])
-			}
-	*/
-
 	//InsDueDate -> insDate
-	insDueDate, err := time.Parse("02/01/2006", args[6])
+	insDueDate, err := time.Parse("02/01/2006", args[5])
 	if err != nil {
 		return shim.Error(err.Error())
 	}
-
+	if insDueDate.Weekday().String() == "Sunday" {
+		fmt.Println("Since the due date falls on sunday, due date is extended to Monday(instrument) : ", insDueDate.AddDate(0, 0, 1))
+	}
+	insDueDate = insDueDate.AddDate(0, 0, 1)
 	//Converting the incoming date from Dd/mm/yy:hh:mm:ss to Dd/mm/yyThh:mm:ss for parsing
 	vString := args[9][:10] + "T" + args[9][11:] //removing the ":" part from the string
 
@@ -146,12 +135,12 @@ func enterInstrument(stub shim.ChaincodeStubInterface, args []string) pb.Respons
 
 	// Hashing for key to store in ledger
 	hash := sha256.New()
-	instID := args[0] + args[2]
+	instID := strings.ToLower(args[0] + args[2])
 	hash.Write([]byte(instID))
 	md := hash.Sum(nil)
 	instIDsha := hex.EncodeToString(md)
 
-	inst := instrumentInfo{args[0], instDate, args[2], args[3], args[4], "open", insDueDate, args[7], args[8], args[9], vDate}
+	inst := instrumentInfo{args[0], instDate, args[2], args[3], args[4], "open", insDueDate, args[6], args[7], args[8], vDate}
 	instBytes, err := json.Marshal(inst)
 	if err != nil {
 		return shim.Error(err.Error())
@@ -168,14 +157,58 @@ func toChaincodeArgs(args ...string) [][]byte {
 	return bargs
 }
 
+func updateInsStatus(stub shim.ChaincodeStubInterface, args []string) pb.Response {
+
+	args = strings.Split(args[0], ",")
+	/*
+		args[0] -> instrument reference number
+		args[1] -> seller ID
+		args[2] -> status
+	*/
+	key := strings.ToLower(args[0] + args[1])
+	instBytes, err := stub.GetState(key)
+	if err != nil {
+		return shim.Error("Unable to fetch instrument info for status updation")
+	}
+	inst := instrumentInfo{}
+	err = json.Unmarshal(instBytes, &inst)
+	if err != nil {
+		return shim.Error("Error in unmarshaling the instrument (updateInsStatus)")
+	}
+	/*
+	 updated sequentially Open > Sanctioned > Overdue>Settled or Open > Sanctioned > Settled
+	*/
+	if (args[2] == "sanctioned") && (inst.InsStatus != "open") {
+		return shim.Error("Instrument status cannot be sanctioned as it is not open")
+	} else if (args[2] == "overdue") && (inst.InsStatus != "sanctioned") {
+		return shim.Error("Instrument status cannot be overdue as it is not sanctioned")
+	} else if (args[2] == "settled") && ((inst.InsStatus != "overdue") || (inst.InsStatus != "sanctioned")) {
+		return shim.Error("Instrument status cannot be settled as it is not overdue or sanctioned")
+	}
+	inst.InsStatus = args[2]
+	instBytes, _ = json.Marshal(inst)
+	stub.PutState(key, instBytes)
+	return shim.Success([]byte("Instrument status updated successfully"))
+
+}
+
 func getInstrument(stub shim.ChaincodeStubInterface, args []string) pb.Response {
-	if len(args) != 1 {
+	if len(args) != 2 {
 		xLenStr := strconv.Itoa(len(args))
-		return shim.Error("Invalid number of arguments in getInstrument (required:1) given:" + xLenStr)
+		return shim.Error("Invalid number of arguments in getInstrument (required:2) given:" + xLenStr)
 
 	}
+	/*
+		args[0] -> InstrumentRefNo
+		args[1] -> SellBusinessID
+	*/
+	hash := sha256.New()
+	instID := strings.ToLower(args[0] + args[1])
+	hash.Write([]byte(instID))
+	md := hash.Sum(nil)
+	instIDsha := hex.EncodeToString(md)
 
-	insBytes, err := stub.GetState(args[0])
+	insBytes, err := stub.GetState(instIDsha)
 	if err != nil {
 		return shim.Error(err.Error())
 	} else if insBytes == nil {
@@ -187,34 +220,6 @@ func getInstrument(stub shim.ChaincodeStubInterface, args []string) pb.Response 
 	insString := fmt.Sprintf("%+v", ins)
 	return shim.Success([]byte(insString))
 }
-
-/*
-func getSellerIDnAmt(stub shim.ChaincodeStubInterface, args []string) pb.Response {
-
-	if len(args) != 1 {
-		xLenStr := strconv.Itoa(len(args))
-		return shim.Error("Invalid number of arguments in getSellerID(instrument) (required:1) given: " + xLenStr)
-	}
-
-	instID := args[0]
-	instRefNoSellIDiterator, err := stub.GetStateByPartialCompositeKey("InstrumentRefNo~SellBusinessID", []string{instID})
-	if err != nil {
-		return shim.Error("Unable to get the result for composite key : InstrumentRefNo~SellBusinessID")
-	}
-	var sellBusID string
-	instRefNoSellIData, err := instRefNoSellIDiterator.Next()
-	if err != nil {
-		return shim.Error("Unable to iterate instRefNoSellIDiterator:" + err.Error())
-	}
-	_, requiredArgs, err := stub.SplitCompositeKey(instRefNoSellIData.Key)
-	if err != nil {
-		return shim.Error("error spliting the composite key instRefNoSellIDiterator:" + err.Error())
-	}
-	sellBusID = requiredArgs[1] + "," + requiredArgs[2]
-
-	return shim.Success([]byte(sellBusID))
-}
-*/
 
 func main() {
 	err := shim.Start(new(chainCode))

@@ -21,6 +21,7 @@ func (c *chainCode) Invoke(stub shim.ChaincodeStubInterface) pb.Response {
 	function, args := stub.GetFunctionAndParameters()
 
 	if function == "newDisbInfo" {
+		//Creates new disbursement info
 		return newDisbInfo(stub, args)
 	}
 	return shim.Error("no function named " + function + " found in Disbursement")
@@ -217,28 +218,25 @@ func newDisbInfo(stub shim.ChaincodeStubInterface, args []string) pb.Response {
 	//Calling for updating Loan Disbursed Wallet
 	//####################################################################################################################
 
-	/*
-		cAmtString = args[5]
-		dAmtString = "0"
+	cAmtString = args[5]
+	dAmtString = "0"
 
-		walletID, openBalString, txnBalString, err = getWalletInfo(stub, args[7], "disbursed", "businesscc", cAmtString, dAmtString)
-		if err != nil {
-			return shim.Error("Loan Disbursed Wallet(Disbursement)" + err.Error())
-		}
+	walletID, openBalString, txnBalString, err = getWalletInfo(stub, args[3], "disbursed", "loancc", cAmtString, dAmtString)
+	if err != nil {
+		return shim.Error("Loan Disbursed Wallet(Disbursement)" + err.Error())
+	}
 
-		// STEP-4 generate txn_balance_object and write it to the Txn_Bal_Ledger
-		argsList = []string{"5", args[0], args[2], args[3], args[4], walletID, openBalString, args[1], args[5], cAmtString, dAmtString, txnBalString, args[8]}
-		argsListStr = strings.Join(argsList, ",")
-		chaincodeArgs = toChaincodeArgs("putTxnInfo", argsListStr)
-		fmt.Println("calling the other chaincode")
-		response = stub.InvokeChaincode("txnbalcc", chaincodeArgs, "myc")
-		if response.Status != shim.OK {
-			return shim.Error(response.Message)
-		}
-		fmt.Println(string(response.GetPayload()))
+	// STEP-4 generate txn_balance_object and write it to the Txn_Bal_Ledger
+	argsList = []string{"5", args[0], args[2], args[3], args[4], walletID, openBalString, args[1], args[5], cAmtString, dAmtString, txnBalString, args[8]}
+	argsListStr = strings.Join(argsList, ",")
+	chaincodeArgs = toChaincodeArgs("putTxnInfo", argsListStr)
+	fmt.Println("calling the other chaincode")
+	response = stub.InvokeChaincode("txnbalcc", chaincodeArgs, "myc")
+	if response.Status != shim.OK {
+		return shim.Error(response.Message)
+	}
+	fmt.Println(string(response.GetPayload()))
 
-
-	*/
 	//####################################################################################################################
 
 	//####################################################################################################################
@@ -253,7 +251,7 @@ func newDisbInfo(stub shim.ChaincodeStubInterface, args []string) pb.Response {
 	}
 
 	//calling to change loan status
-	chaincodeArgs = toChaincodeArgs("updateLoanInfo", args[3], status, "disbursed")
+	chaincodeArgs = toChaincodeArgs("updateLoanInfo", args[3], status, "disbursement")
 	response = stub.InvokeChaincode("loancc", chaincodeArgs, "myc")
 	if response.Status == shim.OK {
 		return shim.Error(response.Message)

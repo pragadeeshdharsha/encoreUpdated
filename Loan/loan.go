@@ -17,21 +17,21 @@ type chainCode struct {
 }
 
 type loanInfo struct {
-	InstNum                     string //Instrument Number
-	ExposureBusinessID          string //buyer for now
-	ProgramID                   string
-	SanctionAmt                 int64
+	InstNum                     string    //[1]//Instrument Number
+	ExposureBusinessID          string    //[2]//buyer for now
+	ProgramID                   string    //[3]
+	SanctionAmt                 int64     //[4]
 	SanctionDate                time.Time //auto generated as created
-	SanctionAuthority           string
-	ROI                         float64
-	DueDate                     time.Time
-	ValueDate                   time.Time //with time
-	LoanStatus                  string
-	LoanDisbursedWalletID       string
-	LoanChargesWalletID         string
-	LoanAccruedInterestWalletID string
-	BuyerBusinessID             string
-	SellerBusinessID            string
+	SanctionAuthority           string    //[5]
+	ROI                         float64   //[6]
+	DueDate                     time.Time //[7]
+	ValueDate                   time.Time //[8]//with time
+	LoanStatus                  string    //[9]
+	LoanDisbursedWalletID       string    //[10]
+	LoanChargesWalletID         string    //[11]
+	LoanAccruedInterestWalletID string    //[12]
+	BuyerBusinessID             string    //[13]
+	SellerBusinessID            string    //[14]
 }
 
 func (c *chainCode) Init(stub shim.ChaincodeStubInterface) pb.Response {
@@ -42,21 +42,28 @@ func (c *chainCode) Invoke(stub shim.ChaincodeStubInterface) pb.Response {
 	function, args := stub.GetFunctionAndParameters()
 
 	if function == "newLoanInfo" {
+		//Creates a new Loan Data
 		return newLoanInfo(stub, args)
 	} else if function == "getLoanInfo" {
+		//Retrieves the existing data
 		return getLoanInfo(stub, args)
 	} else if function == "updateLoanInfo" {
+		//Updates variables for loan structure
 		return updateLoanInfo(stub, args)
 	} else if function == "loanIDexists" {
+		//Checks the existence of loan ID
 		return loanIDexists(stub, args[0])
 	} else if function == "loanStatusSancAmt" {
+		//Returns the Loan status and the sanction amount
 		return loanStatusSancAmt(stub, args[0])
 	} else if function == "getWalletID" {
+		//Returns the walletID for the required wallet type
 		return getWalletID(stub, args)
 	} else if function == "getSellerID" {
+		//Returns the Seller Id
 		return getSellerID(stub, args[0])
 	}
-	return shim.Error("No function named " + function + " in Loan")
+	return shim.Error("No function named " + function + " in Loanssssssssssss")
 }
 
 func newLoanInfo(stub shim.ChaincodeStubInterface, args []string) pb.Response {
@@ -128,6 +135,10 @@ func newLoanInfo(stub shim.ChaincodeStubInterface, args []string) pb.Response {
 	if err != nil {
 		return shim.Error(err.Error())
 	}
+	if dDate.Weekday().String() == "Sunday" {
+		fmt.Println("Since the due date falls on sunday, due date is extended to Monday(loan) : ", dDate.AddDate(0, 0, 1))
+	}
+	dDate = dDate.AddDate(0, 0, 1)
 
 	//Converting the incoming date from Dd/mm/yy:hh:mm:ss to Dd/mm/yyThh:mm:ss for parsing
 	vDateStr := args[5][:10]
@@ -183,6 +194,14 @@ func newLoanInfo(stub shim.ChaincodeStubInterface, args []string) pb.Response {
 		return shim.Error(err.Error())
 	}
 	stub.PutState(args[0], loanBytes)
+
+	argsList := []string{args[1], args[14], "sanctioned"}
+	argsListStr := strings.Join(argsList, ",")
+	chaincodeArgs = toChaincodeArgs("updateInsStatus", argsListStr)
+	response = stub.InvokeChaincode("instrumentcc", chaincodeArgs, "myc")
+	if response.Status != shim.OK {
+		return shim.Error(response.Message)
+	}
 	return shim.Success(nil)
 }
 
@@ -315,9 +334,11 @@ func updateLoanInfo(stub shim.ChaincodeStubInterface, args []string) pb.Response
 		return shim.Error("error in unmarshiling loan: in updateLoanInfo" + err.Error())
 	}
 
-	fmt.Printf("args[1]:%s\n", args[1])
-	// To change the LoanStatus from "open" to "sanction"
-	if args[2] == "disbursed" {
+	// To change the LoanStatus from "sanction" to "disbursed"
+	if args[2] == "disbursement" {
+		if (loan.LoanStatus != "sanctioned") || (loan.LoanStatus != "part disbursed") {
+			return shim.Error("Loan is not Sanctioned, so cannot be disbursed/ part Disbursed : " + loan.LoanStatus)
+		}
 		//Updating Loan status for disbursement
 		loan.LoanStatus = args[1]
 		loanBytes, _ := json.Marshal(loan)
@@ -325,15 +346,29 @@ func updateLoanInfo(stub shim.ChaincodeStubInterface, args []string) pb.Response
 		if err != nil {
 			return shim.Error("Error in loan updation " + err.Error())
 		}
+
+		//Calling instrument chaincode to update the status
+		argsList := []string{loan.InstNum, loan.SellerBusinessID, "disbursed"}
+		argsListStr := strings.Join(argsList, ",")
+		chaincodeArgs := toChaincodeArgs("updateInsStatus", argsListStr)
+		response := stub.InvokeChaincode("instrumentcc", chaincodeArgs, "myc")
+		if response.Status != shim.OK {
+			return shim.Error(response.Message)
+		}
 		return shim.Success([]byte("sanction updated succesfully"))
 
 	} else if (args[1] == "repayment") && ((args[2] == "collected") || (args[2] == "part collected")) {
+		if loan.LoanStatus != "disbursed" {
+			return shim.Error("Loan is not Sanctioned, so cannot be disbursed")
+		}
+		//Updating Loan status for repayment
 		loan.LoanStatus = args[2]
 		loanBytes, _ = json.Marshal(loan)
 		err = stub.PutState(args[0], loanBytes)
 		if err != nil {
 			return shim.Error("Error in loan status updation " + err.Error())
 		}
+
 		return shim.Success([]byte("Successfully updated loan status with data from repayment"))
 	}
 	return shim.Error("Invalid info for update loan")

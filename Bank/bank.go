@@ -35,7 +35,6 @@ func (c *chainCode) Init(stub shim.ChaincodeStubInterface) pb.Response {
 	}
 	value := []byte{0x00}
 	stub.PutState(codeBranchKey, value)
-
 	return shim.Success(nil)
 }
 
@@ -43,15 +42,19 @@ func (c *chainCode) Invoke(stub shim.ChaincodeStubInterface) pb.Response {
 	function, args := stub.GetFunctionAndParameters()
 
 	if function == "writeBankInfo" {
+		//Creates a new Bank Information
 		return writeBankInfo(stub, args)
 	} else if function == "getBankInfo" {
+		//Retrieves the Bank information
 		return getBankInfo(stub, args)
 	} else if function == "getWalletID" {
+		//Returns the walletID for the required wallet type
 		return getWalletID(stub, args)
 	} else if function == "bankIDexists" {
+		//To check the BankId existence
 		return bankIDexists(stub, args[0])
 	}
-	return shim.Error("No function named " + function + " in Bank")
+	return shim.Error("No function named " + function + " in Banksssssssss")
 
 }
 
@@ -74,6 +77,7 @@ func writeBankInfo(stub shim.ChaincodeStubInterface, args []string) pb.Response 
 	if codeBranchData != nil {
 		return shim.Error("Bank code already exist: " + args[3])
 	}
+	defer codeBranchIterator.Close()
 
 	hash := sha256.New()
 
@@ -125,6 +129,7 @@ func writeBankInfo(stub shim.ChaincodeStubInterface, args []string) pb.Response 
 }
 
 func createWallet(stub shim.ChaincodeStubInterface, walletID string, amt string) pb.Response {
+	//Calling wallet Chaincode to create new wallet
 	chaincodeArgs := toChaincodeArgs("newWallet", walletID, amt)
 	response := stub.InvokeChaincode("walletcc", chaincodeArgs, "myc")
 	if response.Status != shim.OK {

@@ -1,4 +1,4 @@
-----------------BANK------------
+----------------BANK done------------
 
 peer chaincode invoke -o orderer.example.com:7050  --tls --cafile /opt/gopath/src/github.com/hyperledger/fabric/peer/crypto/ordererOrganizations/example.com/orderers/orderer.example.com/msp/tlscacerts/tlsca.example.com-cert.pem  -C myc -n bankcc -c '{"Args":["writeBankInfo","1bank","kvb","chennai","40A","1000","1000","1000","1000","1000"]}' -C myc
 

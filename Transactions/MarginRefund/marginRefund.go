@@ -20,20 +20,20 @@ func (c *chainCode) Init(stub shim.ChaincodeStubInterface) pb.Response {
 func (c *chainCode) Invoke(stub shim.ChaincodeStubInterface) pb.Response {
 	function, args := stub.GetFunctionAndParameters()
 
-	if function == "newRepayInfo" {
-		return newRepayInfo(stub, args)
+	if function == "newMarginInfo" {
+		return newMarginInfo(stub, args)
 	}
 	return shim.Error("no function named " + function + " found in Margin Refund")
 }
 
-func newRepayInfo(stub shim.ChaincodeStubInterface, args []string) pb.Response {
+func newMarginInfo(stub shim.ChaincodeStubInterface, args []string) pb.Response {
 
 	if len(args) == 1 {
 		args = strings.Split(args[0], ",")
 	}
 	if len(args) != 10 {
 		xLenStr := strconv.Itoa(len(args))
-		return shim.Error("Invalid number of arguments in newRepayInfo(Margin Refund) (required:10) given:" + xLenStr)
+		return shim.Error("Invalid number of arguments in newMarginInfo(Margin Refund) (required:10) given:" + xLenStr)
 	}
 
 	/*
@@ -219,6 +219,26 @@ func newRepayInfo(stub shim.ChaincodeStubInterface, args []string) pb.Response {
 	}
 
 	//####################################################################################################################
+
+	//Getting sellerId using loanID
+	chaincodeArgs = toChaincodeArgs("getSellerID", args[3])
+	response = stub.InvokeChaincode("loancc", chaincodeArgs, "myc")
+	if response.Status != shim.OK {
+		return shim.Error(response.Message)
+	}
+
+	sellerID := string(response.Payload)
+	walletID, err = getWalletID(stub, "businesscc", sellerID, "loan")
+	//Calling instrument chaincode to update the status
+	if args[2] == "collected" {
+		argsList := []string{args[4], sellerID, "settled"}
+		argsListStr := strings.Join(argsList, ",")
+		chaincodeArgs := toChaincodeArgs("updateInsStatus", argsListStr)
+		response := stub.InvokeChaincode("instrumentcc", chaincodeArgs, "myc")
+		if response.Status != shim.OK {
+			return shim.Error(response.Message)
+		}
+	}
 
 	return shim.Success(nil)
 }

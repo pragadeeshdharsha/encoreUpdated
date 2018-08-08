@@ -40,7 +40,7 @@ func (c *chainCode) Invoke(stub shim.ChaincodeStubInterface) pb.Response {
 	} else if function == "getTxnBalInfo" { // To view a Transaction Balance
 		return getTxnBalInfo(stub, args)
 	}
-	return shim.Error("No function named " + function + " in TxnBalance")
+	return shim.Error("No function named " + function + " in TxnBalancessssss")
 }
 
 func putTxnInfo(stub shim.ChaincodeStubInterface, args []string) pb.Response {

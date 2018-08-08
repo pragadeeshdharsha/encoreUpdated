@@ -20,20 +20,20 @@ func (c *chainCode) Init(stub shim.ChaincodeStubInterface) pb.Response {
 func (c *chainCode) Invoke(stub shim.ChaincodeStubInterface) pb.Response {
 	function, args := stub.GetFunctionAndParameters()
 
-	if function == "newRepayInfo" {
-		return newRepayInfo(stub, args)
+	if function == "newInterestInfo" {
+		return newInterestInfo(stub, args)
 	}
 	return shim.Error("no function named " + function + " found in Interest Refund")
 }
 
-func newRepayInfo(stub shim.ChaincodeStubInterface, args []string) pb.Response {
+func newInterestInfo(stub shim.ChaincodeStubInterface, args []string) pb.Response {
 
 	if len(args) == 1 {
 		args = strings.Split(args[0], ",")
 	}
 	if len(args) != 10 {
 		xLenStr := strconv.Itoa(len(args))
-		return shim.Error("Invalid number of arguments in newRepayInfo(Interest Refund) (required:10) given:" + xLenStr)
+		return shim.Error("Invalid number of arguments in newInterestInfo(Interest Refund) (required:10) given:" + xLenStr)
 	}
 
 	/*

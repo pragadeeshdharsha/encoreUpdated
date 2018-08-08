@@ -34,11 +34,13 @@ func (c *chainCode) Invoke(stub shim.ChaincodeStubInterface) pb.Response {
 	function, args := stub.GetFunctionAndParameters()
 
 	if function == "newTxnInfo" {
+		//Creates new Transaction Information
 		return newTxnInfo(stub, args)
 	} else if function == "getTxnInfo" {
+		//Retrieves an existing transcation information
 		return getTxnInfo(stub, args)
 	}
-	return shim.Success(nil)
+	return shim.Error("No function named " + function + " in Transactionsssss")
 }
 
 func newTxnInfo(stub shim.ChaincodeStubInterface, args []string) pb.Response {
@@ -48,10 +50,11 @@ func newTxnInfo(stub shim.ChaincodeStubInterface, args []string) pb.Response {
 	}
 
 	tTypeValues := map[string]bool{
-		"disbursement": true,
-		"repayment":    true,
-		"collection":   true,
-		"refund":       true,
+		"disbursement":              true,
+		"repayment":                 true,
+		"margin refund":             true,
+		"interest refund":           true,
+		"penal interest collection": true,
 	}
 
 	//Converting into lower case for comparison
@@ -90,9 +93,9 @@ func newTxnInfo(stub shim.ChaincodeStubInterface, args []string) pb.Response {
 		err = stub.PutState(args[0], txnBytes)
 		if err != nil {
 			return shim.Error("Cannot write into ledger the transactino details")
-		} else {
-			fmt.Println("Successfully inserted disbursement transaction into the ledger")
 		}
+		fmt.Println("Successfully inserted disbursement transaction into the ledger")
+
 		//chaincodeArgs = toChaincodeArgs("updateLoanBal",)
 
 	case "repayment":
@@ -109,9 +112,56 @@ func newTxnInfo(stub shim.ChaincodeStubInterface, args []string) pb.Response {
 		err = stub.PutState(args[0], txnBytes)
 		if err != nil {
 			return shim.Error("Cannot write into ledger the transaction details")
-		} else {
-			fmt.Println("Successfully inserted repayment transaction into the ledger")
 		}
+		fmt.Println("Successfully inserted repayment transaction into the ledger")
+	case "margin refund":
+		argsStr := strings.Join(args, ",")
+		chaincodeArgs := toChaincodeArgs("newMarginInfo", argsStr)
+		fmt.Println("calling the marginrefundcc chaincode")
+		response := stub.InvokeChaincode("marginrefundcc", chaincodeArgs, "myc")
+		if response.Status != shim.OK {
+			return shim.Error(response.Message)
+		}
+		transaction := transactionInfo{tTypeLower, tDate, args[3], args[4], amt, args[6], args[7], args[8], args[9]}
+		fmt.Println(transaction)
+		txnBytes, err := json.Marshal(transaction)
+		err = stub.PutState(args[0], txnBytes)
+		if err != nil {
+			return shim.Error("Cannot write into ledger the transaction details")
+		}
+		fmt.Println("Successfully inserted margin refund transaction into the ledger")
+	case "interest refund":
+		argsStr := strings.Join(args, ",")
+		chaincodeArgs := toChaincodeArgs("newInterestInfo", argsStr)
+		fmt.Println("calling the interestrefundcc chaincode")
+		response := stub.InvokeChaincode("interestrefundcc", chaincodeArgs, "myc")
+		if response.Status != shim.OK {
+			return shim.Error(response.Message)
+		}
+		transaction := transactionInfo{tTypeLower, tDate, args[3], args[4], amt, args[6], args[7], args[8], args[9]}
+		fmt.Println(transaction)
+		txnBytes, err := json.Marshal(transaction)
+		err = stub.PutState(args[0], txnBytes)
+		if err != nil {
+			return shim.Error("Cannot write into ledger the transaction details")
+		}
+		fmt.Println("Successfully inserted interest refund transaction into the ledger")
+	case "penal interest collection":
+		argsStr := strings.Join(args, ",")
+		chaincodeArgs := toChaincodeArgs("newPICinfo", argsStr)
+		fmt.Println("calling the piccc chaincode")
+		response := stub.InvokeChaincode("piccc", chaincodeArgs, "myc")
+		if response.Status != shim.OK {
+			return shim.Error(response.Message)
+		}
+		transaction := transactionInfo{tTypeLower, tDate, args[3], args[4], amt, args[6], args[7], args[8], args[9]}
+		fmt.Println(transaction)
+		txnBytes, err := json.Marshal(transaction)
+		err = stub.PutState(args[0], txnBytes)
+		if err != nil {
+			return shim.Error("Cannot write into ledger the transaction details")
+		}
+		fmt.Println("Successfully inserted penal interest collection transaction into the ledger")
 
 	default:
 		fmt.Println("incorrect txnType")

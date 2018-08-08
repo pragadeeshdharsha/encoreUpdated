@@ -44,17 +44,22 @@ func (c *chainCode) Invoke(stub shim.ChaincodeStubInterface) pb.Response {
 	function, args := stub.GetFunctionAndParameters()
 
 	if function == "putNewBusinessInfo" {
+		//Creates a new Business Information
 		return putNewBusinessInfo(stub, args)
 	} else if function == "getBusinessInfo" {
+		//Retrieves the Business information
 		return getBusinessInfo(stub, args)
 	} else if function == "getWalletID" {
+		//Returns the walletID for the required wallet type
 		return getWalletID(stub, args)
 	} else if function == "busIDexists" {
+		//To check the BusinessId existence
 		return busIDexists(stub, args[0])
 	} else if function == "updateBusinessInfo" {
+		//Updates Business Limit / MAX ROI / MAX ROI if required
 		return updateBusinessInfo(stub, args)
 	}
-	return shim.Error("No function named " + function + " in Business")
+	return shim.Error("No function named " + function + " in Businessssssss")
 }
 
 func putNewBusinessInfo(stub shim.ChaincodeStubInterface, args []string) pb.Response {
@@ -143,6 +148,7 @@ func putNewBusinessInfo(stub shim.ChaincodeStubInterface, args []string) pb.Resp
 }
 
 func createWallet(stub shim.ChaincodeStubInterface, walletID string, amt string) pb.Response {
+	//Calling the wallet Chaincode to create new wallet
 	chaincodeArgs := toChaincodeArgs("newWallet", walletID, amt)
 	response := stub.InvokeChaincode("walletcc", chaincodeArgs, "myc")
 	if response.Status != shim.OK {

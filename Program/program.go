@@ -15,20 +15,20 @@ type chainCode struct {
 }
 
 type programInfo struct {
-	ProgramName        string
-	ProgramAnchor      string //BusinessID
-	ProgramType        string
+	ProgramName        string    //[1]
+	ProgramAnchor      string    //BusinessID //[2]
+	ProgramType        string    //[3]
 	ProgramStartDate   time.Time //auto generated as created
-	ProgramEndDate     time.Time
-	ProgramLimit       int64
-	ProgramROI         int64
-	ProgramExposure    string
-	DiscountPercentage int64
-	DiscountPeriod     int64
-	SanctionAuthority  string
+	ProgramEndDate     time.Time //[4]
+	ProgramLimit       int64     //[5]
+	ProgramROI         int64     //[6]
+	ProgramExposure    string    //[7]
+	DiscountPercentage int64     //[8]
+	DiscountPeriod     int64     //[9]
+	SanctionAuthority  string    //[10]
 	SanctionDate       time.Time //auto generated as created
-	RepaymentAcNum     string
-	RepaymentWalletID  string //taken from program anchors business id
+	RepaymentAcNum     string    //[11]
+	RepaymentWalletID  string    //taken from program anchors business id
 }
 
 func (c *chainCode) Init(stub shim.ChaincodeStubInterface) pb.Response {
@@ -39,21 +39,28 @@ func (c *chainCode) Invoke(stub shim.ChaincodeStubInterface) pb.Response {
 	function, args := stub.GetFunctionAndParameters()
 
 	if function == "writeProgram" {
+		//Creates a new Program Information
 		return writeProgram(stub, args)
 	} else if function == "getProgram" {
+		//Retrieves the Program Information
 		return getProgram(stub, args)
 	} else if function == "programIDexists" {
+		//Checks the existence of ProgramID
 		return programIDexists(stub, args[0])
 	} else if function == "updateProgramInfo" {
+		/*
+			Updates Program Limit, Program ROI,
+			Discount Percentage,Discount Period and Program end date if required
+		*/
 		return updateProgramInfo(stub, args)
 	}
-	return shim.Error("No function named " + function + " in Program")
+	return shim.Error("No function named " + function + " in Programsssssss")
 }
 
 func writeProgram(stub shim.ChaincodeStubInterface, args []string) pb.Response {
-	if len(args) != 12 {
+	if len(args) != 11 {
 		xLenStr := strconv.Itoa(len(args))
-		return shim.Error("Invalid number of arguments in writeProgram (required:12) given:" + xLenStr)
+		return shim.Error("Invalid number of arguments in writeProgram (required:11) given:" + xLenStr)
 	}
 
 	//Checking existence of programID
@@ -88,17 +95,17 @@ func writeProgram(stub shim.ChaincodeStubInterface, args []string) pb.Response {
 	pSDate := time.Now()
 
 	//ProgramEndDate -> pEDate
-	pEDate, err := time.Parse("02/01/2006", args[5])
+	pEDate, err := time.Parse("02/01/2006", args[4])
 	if err != nil {
 		return shim.Error(err.Error())
 	}
 
-	pLimit, err := strconv.ParseInt(args[6], 10, 64)
+	pLimit, err := strconv.ParseInt(args[5], 10, 64)
 	if err != nil {
 		return shim.Error("Invalid Program limit " + args[6])
 	}
 
-	pROI, err := strconv.ParseInt(args[7], 10, 64)
+	pROI, err := strconv.ParseInt(args[6], 10, 64)
 	if err != nil {
 		return shim.Error("Invalid Rate of Interest in writeProgram")
 	}
@@ -108,18 +115,18 @@ func writeProgram(stub shim.ChaincodeStubInterface, args []string) pb.Response {
 		"seller": true,
 	}
 
-	pExposureLower := strings.ToLower(args[8])
+	pExposureLower := strings.ToLower(args[7])
 
 	if !pExposure[pExposureLower] {
 		return shim.Error("Invalid Program Exposure " + pExposureLower)
 	}
 
-	dPercentage, err := strconv.ParseInt(args[9], 10, 64)
+	dPercentage, err := strconv.ParseInt(args[8], 10, 64)
 	if err != nil {
 		return shim.Error("Invalid discount percentage")
 	}
 
-	dPeriod, err := strconv.ParseInt(args[10], 10, 64)
+	dPeriod, err := strconv.ParseInt(args[9], 10, 64)
 	if err != nil {
 		return shim.Error("Invalid discount period")
 	}
@@ -134,7 +141,7 @@ func writeProgram(stub shim.ChaincodeStubInterface, args []string) pb.Response {
 		return shim.Error(response.Message)
 	}
 	repayWalletID := string(response.GetPayload())
-	pInfo := programInfo{args[1], args[2], pTypeLower, pSDate, pEDate, pLimit, pROI, pExposureLower, dPercentage, dPeriod, args[11], sDate, args[12], repayWalletID}
+	pInfo := programInfo{args[1], args[2], pTypeLower, pSDate, pEDate, pLimit, pROI, pExposureLower, dPercentage, dPeriod, args[10], sDate, args[11], repayWalletID}
 	programInfoBytes, _ := json.Marshal(pInfo)
 	err = stub.PutState(args[0], programInfoBytes)
 	return shim.Success(nil)
@@ -152,7 +159,7 @@ func updateProgramInfo(stub shim.ChaincodeStubInterface, args []string) pb.Respo
 
 	/*
 		args[0] -> ProgramID
-		args[1] -> Program Limit, Program ROI, Discount Percentage,Discount Period
+		args[1] -> Program Limit, Program ROI, Discount Percentage,Discount Period and Program End Date
 		args[2] -> values
 	*/
 
@@ -171,6 +178,14 @@ func updateProgramInfo(stub shim.ChaincodeStubInterface, args []string) pb.Respo
 	}
 
 	lowerStr := strings.ToLower(args[1])
+
+	if lowerStr == "program end date" {
+		pEDate, err := time.Parse("02/01/2006", args[2])
+		if err != nil {
+			return shim.Error("updateProgramInfo updating programEndDate" + err.Error())
+		}
+		pInfo.ProgramEndDate = pEDate
+	}
 
 	value, err := strconv.ParseInt(args[2], 10, 64)
 	if err != nil {
